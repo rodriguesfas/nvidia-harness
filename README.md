@@ -102,7 +102,7 @@ Depois: Command Palette → **NVIDIA NIM: Manage NVIDIA NIM API Key**.
 ```text
 install.sh              # entrada (menu / CLI)
 lib/common.sh           # log, backup, confirm
-lib/nvidia.sh           # chave compartilhada + /models + smoke
+lib/nvidia.sh           # chave compartilhada + /models + validação via chat
 harnesses/claude.sh
 harnesses/cursor.sh
 harnesses/opencode.sh
@@ -125,6 +125,7 @@ docs/TROUBLESHOOTING.md
 - Cursor: cadastro de Model Names continua manual (sem API estável da IDE).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`).
+- `GET /v1/models` da NVIDIA responde sem autenticar; a prova da chave é via `chat/completions` (pule só com `--no-test`).
 - Créditos gratuitos da NVIDIA expiram; rate limit da conta free é baixo.
 
 ## Licença

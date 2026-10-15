@@ -67,6 +67,8 @@ nh_resolve_api_key() {
 }
 
 # Persiste a chave no env compartilhado (600). Idempotente: preserva se igual.
+# NH_KEY_VALIDATED=1 deve ser setado após nh_validate_key bem-sucedido.
+# Com --no-test (chave não validada), só grava se ainda não existir env.
 nh_save_shared_env() {
   ensure_dir "$NH_CONFIG_DIR"
   umask 077
@@ -80,6 +82,13 @@ nh_save_shared_env() {
   if [ -n "$old" ] && [ "$old" = "$NH_API_KEY" ] && [ -f "$NH_ENVF" ]; then
     ok "chave compartilhada já gravada ($(mask_key "$NH_API_KEY"))"
     return 0
+  fi
+  if [ "${NH_KEY_VALIDATED:-0}" != "1" ]; then
+    if [ -n "$old" ]; then
+      aviso "chave não validada (--no-test); mantendo $NH_ENVF existente ($(mask_key "$old"))"
+      return 0
+    fi
+    aviso "gravando chave ainda não validada em $NH_ENVF (não havia env prévio)"
   fi
   if [ -n "$old" ] && [ "$old" != "$NH_API_KEY" ]; then
     confirm "Substituir chave em $NH_ENVF ($(mask_key "$old") → $(mask_key "$NH_API_KEY"))?" \
@@ -164,11 +173,13 @@ nh_smoke_chat() {
   esac
 }
 
-# Validação mínima de chave (sempre, mesmo com --no-test).
+# Validação mínima de chave via chat/completions (prova real de auth).
 nh_validate_key() {
   local model="${NVIDIA_TEST_MODEL:-openai/gpt-oss-20b}"
   log "validando chave NVIDIA (chat/completions)"
   NH_SMOKE_STRICT=1 nh_smoke_chat "$model"
+  NH_KEY_VALIDATED=1
+  export NH_KEY_VALIDATED
 }
 
 nh_diagnose_common() {

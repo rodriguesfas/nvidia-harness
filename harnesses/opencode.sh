@@ -77,7 +77,11 @@ nh_resolve_api_key
 log "listando catálogo /models"
 nh_list_models >/dev/null
 ok "catálogo /models OK"
-nh_validate_key
+if [ "$DO_TEST" = 1 ]; then
+  nh_validate_key
+else
+  aviso "pulando validação da chave (--no-test); /models não prova autenticação"
+fi
 
 nh_save_shared_env
 

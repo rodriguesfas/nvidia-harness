@@ -94,7 +94,11 @@ if [ "${#LIVE_MODELS[@]}" -gt 15 ]; then
 fi
 
 # /models não autentica de fato — a chave só é comprovada no chat.
-nh_validate_key
+if [ "$DO_TEST" = 1 ]; then
+  nh_validate_key
+else
+  aviso "pulando validação da chave (--no-test); /models não prova autenticação"
+fi
 
 nh_save_shared_env
 

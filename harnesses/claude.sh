@@ -44,7 +44,12 @@ while [ $# -gt 0 ]; do
     --diagnose) DO_DIAGNOSE=1; shift ;;
     --yes|-y) NH_YES=1; export NH_YES; shift ;;
     -h|--help)
-      sed -n '2,12p' "$0"
+      cat <<EOF
+Uso: ./harnesses/claude.sh [--api-key nvapi-…] [--model id] [--small-model id]
+                           [--no-test] [--e2e] [--diagnose] [--yes]
+Instala proxy LiteLLM + wrapper claude-nvidia (NVIDIA NIM).
+Prefira NVIDIA_NIM_API_KEY=… no ambiente em vez de --api-key.
+EOF
       exit 0
       ;;
     *) erro "argumento desconhecido: $1" ;;
@@ -147,9 +152,8 @@ export NV_SMALL_MODEL="\${NV_SMALL_MODEL:-$NV_SMALL_DEFAULT}"
 EOF
 chmod 600 "$ENVF"
 ok "env em $ENVF ($KEY_MSG $(mask_key "$API_KEY"); $([ -n "$OLD_MASTER" ] && echo 'master key preservada' || echo 'master key nova'))"
-# Espelha a chave no env compartilhado do nvidia-harness (sem sobrescrever se o user recusar).
+# Espelha no env compartilhado no final (após testes, se houver).
 NH_API_KEY="$API_KEY"
-nh_save_shared_env
 
 # ------------------------------------------------------------------- config.yaml
 if [ -f "$CONF" ] && ! head -1 "$CONF" | grep -q "install-nvidia-claude-code"; then
@@ -486,6 +490,13 @@ if [ "$DO_E2E" = 1 ]; then
   log "teste ponta a ponta (claude -p)"
   "$WRAPPER" -p "responda apenas: ok" | tail -n 2
 fi
+
+# Espelha a chave no env compartilhado do nvidia-harness.
+# Se os testes passaram (ou foram pulados com chave já instalada), marca como validada.
+if [ "$DO_TEST" = 1 ] || [ -n "$OLD_API_KEY" ]; then
+  NH_KEY_VALIDATED=1
+fi
+nh_save_shared_env
 
 echo
 ok "instalado. Use: claude-nvidia"

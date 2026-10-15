@@ -34,7 +34,7 @@
 
 ## Smoke test lento / timeout
 
-O endpoint hosted da NVIDIA às vezes demora. O instalador trata timeout como **aviso**, não como falha fatal (exceto 401/403). Pule com `--no-test`.
+O endpoint hosted da NVIDIA às vezes demora. **`GET /v1/models` não autentica de fato** — a chave só é comprovada em `chat/completions` (isso roda por padrão). Timeout no chat vira aviso; **401/403 abortam**. Pule a prova da chave com `--no-test` (não recomendado).
 
 ## Restaurar backup
 
