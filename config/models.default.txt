@@ -1,0 +1,13 @@
+# Modelos recomendados (ids exatos da API NVIDIA NIM).
+# Linhas começando com # são ignoradas.
+nvidia/nemotron-3-super-120b-a12b
+nvidia/nemotron-3-ultra-550b-a55b
+nvidia/nemotron-3.5-lightning-30b-a3b
+moonshotai/kimi-k3
+moonshotai/kimi-k2.6
+openai/gpt-oss-120b
+openai/gpt-oss-20b
+deepseek-ai/deepseek-v4.1-flash
+z-ai/glm-5.3
+meta/llama-3.3-70b-instruct
+mistralai/mistral-large

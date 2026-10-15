@@ -1,0 +1,52 @@
+{
+  "npm": "@ai-sdk/openai-compatible",
+  "name": "NVIDIA NIM",
+  "options": {
+    "baseURL": "https://integrate.api.nvidia.com/v1",
+    "apiKey": ""
+  },
+  "models": {
+    "nvidia/nemotron-3-super-120b-a12b": {
+      "name": "Nemotron 3 Super 120B",
+      "tool_call": true,
+      "reasoning": false,
+      "temperature": true,
+      "limit": { "context": 1000000, "output": 16384 }
+    },
+    "moonshotai/kimi-k3": {
+      "name": "Kimi K3",
+      "tool_call": true,
+      "reasoning": false,
+      "temperature": true,
+      "limit": { "context": 1000000, "output": 8192 }
+    },
+    "openai/gpt-oss-120b": {
+      "name": "GPT OSS 120B",
+      "tool_call": true,
+      "reasoning": false,
+      "temperature": true,
+      "limit": { "context": 131072, "output": 8192 }
+    },
+    "openai/gpt-oss-20b": {
+      "name": "GPT OSS 20B",
+      "tool_call": true,
+      "reasoning": false,
+      "temperature": true,
+      "limit": { "context": 131072, "output": 4096 }
+    },
+    "deepseek-ai/deepseek-v4.1-flash": {
+      "name": "DeepSeek V4.1 Flash",
+      "tool_call": true,
+      "reasoning": false,
+      "temperature": true,
+      "limit": { "context": 262144, "output": 8192 }
+    },
+    "z-ai/glm-5.3": {
+      "name": "GLM 5.3",
+      "tool_call": true,
+      "reasoning": false,
+      "temperature": true,
+      "limit": { "context": 1000000, "output": 8192 }
+    }
+  }
+}
