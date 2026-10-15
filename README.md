@@ -112,11 +112,11 @@ config/opencode-provider.json
 docs/TROUBLESHOOTING.md
 ```
 
-## Histórico / repositórios anteriores
+## Histórico
 
 | Antes | Situação |
 |---|---|
-| [`rodriguesfas/claude-nvidia`](https://github.com/rodriguesfas/claude-nvidia) | Mantido: o instalador antigo redireciona / espelha este repo |
+| `rodriguesfas/claude-nvidia` | Removido — tudo vive aqui (`./install.sh claude`). O binário local `claude-nvidia` e `~/.config/claude-nvidia/` continuam sendo o runtime do harness Claude. |
 | [Gist Cursor](https://gist.github.com/rodriguesfas/c45aeccb42cd0ceb5d900b11198d80cb) | Absorvido em `harnesses/cursor.sh` |
 | OpenCode / VS Code | Não havia repo — cobertos aqui |
 
