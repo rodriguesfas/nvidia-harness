@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nvidia-harness — instalador unificado de modelos NVIDIA NIM para
-# Claude Code, Cursor, OpenCode e VS Code.
+# Claude Code, Cursor, OpenCode, VS Code e Antigravity.
 #
 #   ./install.sh                       # menu interativo
 #   ./install.sh <harness> [flags…]    # direto
@@ -18,7 +18,7 @@ source "$NH_ROOT/lib/common.sh"
 # shellcheck source=lib/nvidia.sh
 source "$NH_ROOT/lib/nvidia.sh"
 
-HARNESSES=(claude cursor opencode vscode)
+HARNESSES=(claude cursor opencode vscode antigravity)
 
 usage() {
   cat <<EOF
@@ -26,7 +26,7 @@ nvidia-harness — configura modelos NVIDIA NIM nos harnesses de desenvolvimento
 
 Uso:
   ./install.sh                       menu interativo
-  ./install.sh claude|cursor|opencode|vscode [flags do harness]
+  ./install.sh claude|cursor|opencode|vscode|antigravity [flags do harness]
   ./install.sh all [--yes] [--no-test]
   ./install.sh diagnose
   ./install.sh --help
@@ -40,6 +40,7 @@ Flags globais (antes do harness):
 Exemplos:
   NVIDIA_NIM_API_KEY=nvapi-… ./install.sh claude
   ./install.sh cursor --diagnose
+  ./install.sh antigravity --yes
   ./install.sh all --yes --no-test
 
 Docs: $NH_ROOT/README.md
@@ -67,7 +68,7 @@ while [ $# -gt 0 ]; do
     --diagnose) MODE_DIAGNOSE=1; shift ;;
     diagnose) MODE_DIAGNOSE=1; shift ;;
     all) MODE_ALL=1; shift ;;
-    claude|cursor|opencode|vscode) TARGET="$1"; shift; FORWARD_ARGS+=("$@"); break ;;
+    claude|cursor|opencode|vscode|antigravity) TARGET="$1"; shift; FORWARD_ARGS+=("$@"); break ;;
     *)
       # flags restantes pertencem ao harness
       FORWARD_ARGS+=("$1"); shift
@@ -86,7 +87,7 @@ run_harness() {
 
 menu() {
   if [ ! -t 0 ]; then
-    erro "sem TTY — informe o harness: ./install.sh claude|cursor|opencode|vscode|all|diagnose"
+    erro "sem TTY — informe o harness: ./install.sh claude|cursor|opencode|vscode|antigravity|all|diagnose"
   fi
   echo
   echo "nvidia-harness — selecione o destino:"
@@ -94,8 +95,9 @@ menu() {
   echo "  2) Cursor       (OpenAI-compatible base URL)"
   echo "  3) OpenCode     (provider nvidia no opencode.json)"
   echo "  4) VS Code      (extensão NIM Provider + Copilot Chat)"
-  echo "  5) Todos"
-  echo "  6) Diagnóstico"
+  echo "  5) Antigravity  (Cline OpenAI Compatible → NIM)"
+  echo "  6) Todos"
+  echo "  7) Diagnóstico"
   echo "  0) Sair"
   local choice
   printf 'Opção: '
@@ -105,8 +107,9 @@ menu() {
     2) TARGET=cursor ;;
     3) TARGET=opencode ;;
     4) TARGET=vscode ;;
-    5) MODE_ALL=1 ;;
-    6) MODE_DIAGNOSE=1 ;;
+    5) TARGET=antigravity ;;
+    6) MODE_ALL=1 ;;
+    7) MODE_DIAGNOSE=1 ;;
     0) exit 0 ;;
     *) erro "opção inválida" ;;
   esac

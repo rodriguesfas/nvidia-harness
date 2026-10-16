@@ -32,6 +32,14 @@
 - Command Palette → **NVIDIA NIM: Manage NVIDIA NIM API Key**.
 - VS Code ≥ 1.104.
 
+## Antigravity: Cascade ignora Base URL / chave NVIDIA
+
+Esperado. O agente nativo não tem BYOK OpenAI-compatible — chaves inventadas em `settings.json` (`antigravity.openai-compatible.*`) não roteiam.
+
+- Use o Cline (`saoudrizwan.claude-dev`) dentro do Antigravity: Provider **OpenAI Compatible**, Base URL `https://integrate.api.nvidia.com/v1`, chave `nvapi-…`, Model ID exato.
+- Reinstale/oriente com `./install.sh antigravity`.
+- `agy` só aceita endpoint Gemini (`GOOGLE_GEMINI_BASE_URL` + `GEMINI_API_KEY`); não use a URL NIM aí.
+
 ## Smoke test lento / timeout
 
 O endpoint hosted da NVIDIA às vezes demora. **`GET /v1/models` não autentica de fato** — a chave só é comprovada em `chat/completions` (isso roda por padrão). Timeout no chat vira aviso; **401/403 abortam**. Pule a prova da chave com `--no-test` (não recomendado).

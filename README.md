@@ -8,6 +8,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 | **Cursor** | Grava `cursor.openai.baseUrl` e valida a API (Model Names são manuais na UI) |
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
+| **Antigravity** | Valida a API, instala [Cline](https://docs.cline.bot/) e orienta OpenAI Compatible → NIM |
 
 Um único ponto de entrada, módulos por harness, chave compartilhada em `~/.config/nvidia-harness/env` (permissão `600`). **Nunca** versionamos tokens.
 
@@ -20,6 +21,7 @@ Um único ponto de entrada, módulos por harness, chave compartilhada em `~/.con
   - Cursor: [Cursor](https://cursor.com/) instalado
   - OpenCode: [OpenCode](https://opencode.ai/) no `PATH`
   - VS Code: [VS Code](https://code.visualstudio.com/) + [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) (hospedeiro do picker)
+  - Antigravity: [Antigravity](https://antigravity.google/) instalado (`antigravity` no `PATH`)
 
 ## Instalação rápida
 
@@ -37,6 +39,7 @@ NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh claude
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh cursor
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh opencode
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh vscode
+NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh antigravity
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh all --yes
 ```
 
@@ -83,6 +86,14 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh vscode
 
 Depois: Command Palette → **NVIDIA NIM: Manage NVIDIA NIM API Key**.
 
+### Antigravity
+
+```bash
+NVIDIA_NIM_API_KEY=nvapi-… ./install.sh antigravity
+```
+
+O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script instala o [Cline](https://docs.cline.bot/) e orienta: **OpenAI Compatible** → Base URL `https://integrate.api.nvidia.com/v1` → chave `nvapi-…` → Model ID (ex.: `nvidia/nemotron-3-super-120b-a12b`). O CLI `agy` só fala protocolo Gemini (`GOOGLE_GEMINI_BASE_URL`), não a API NIM.
+
 ## Diagnóstico
 
 ```bash
@@ -107,6 +118,7 @@ harnesses/claude.sh
 harnesses/cursor.sh
 harnesses/opencode.sh
 harnesses/vscode.sh
+harnesses/antigravity.sh
 config/models.default.txt
 config/opencode-provider.json
 docs/TROUBLESHOOTING.md
@@ -119,12 +131,14 @@ docs/TROUBLESHOOTING.md
 | `rodriguesfas/claude-nvidia` | Removido — tudo vive aqui (`./install.sh claude`). O binário local `claude-nvidia` e `~/.config/claude-nvidia/` continuam sendo o runtime do harness Claude. |
 | [Gist Cursor](https://gist.github.com/rodriguesfas/c45aeccb42cd0ceb5d900b11198d80cb) | Absorvido em `harnesses/cursor.sh` |
 | OpenCode / VS Code | Não havia repo — cobertos aqui |
+| Antigravity | Coberto via Cline (Cascade nativo sem BYOK OpenAI) |
 
 ## Limitações
 
 - Cursor: cadastro de Model Names continua manual (sem API estável da IDE).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`).
+- Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).
 - `GET /v1/models` da NVIDIA responde sem autenticar; a prova da chave é via `chat/completions` (pule só com `--no-test`).
 - Créditos gratuitos da NVIDIA expiram; rate limit da conta free é baixo.
 
