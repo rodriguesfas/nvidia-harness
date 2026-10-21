@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Harness: Google Antigravity IDE → NVIDIA NIM (via Cline OpenAI Compatible).
 #
-# O agente Cascade nativo da IDE não aceita endpoint OpenAI-compatible / BYOK.
-# O caminho suportado é o Cline dentro do Antigravity apontado para a API NIM.
+# STATUS (2026-10-21): AGUARDANDO BYOK NATIVO LIBERADO PELA GOOGLE.
+# O agente Cascade/Agent nativo ainda não aceita endpoint OpenAI-compatible /
+# BYOK para usuário final: sem setting de modelo/Base URL/API key na IDE, e a
+# inferência é feita no backend da Google (cloudcode-pa.googleapis.com). O
+# `CustomModels` do language server é config enterprise/eval sincronizada do
+# servidor — não é cadastro local. Quando a Google liberar BYOK no Agent
+# nativo, este harness deve passar a gravar direto lá e o Cline vira legado.
+# Até lá, o caminho suportado é o Cline dentro do Antigravity → API NIM.
 # Este script CONFIGURA o Cline de verdade (não só orienta):
 #   - globalState do Cline em ~/.config/Antigravity/User/globalStorage/state.vscdb
 #     (apiProvider=openai, openAiBaseUrl, openAiModelId + plan/act mode)
@@ -73,7 +79,7 @@ PY
   else
     printf '  cline cfg   : NÃO configurado para NVIDIA NIM\n'
   fi
-  aviso "Cascade (agente nativo) não usa custom OpenAI Base URL — use o Cline para NIM"
+  aviso "Cascade (agente nativo) sem BYOK — aguardando liberação da Google (2026-10-21); use o Cline para NIM"
 }
 
 while [ $# -gt 0 ]; do

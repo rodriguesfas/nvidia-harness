@@ -92,6 +92,8 @@ Depois: Command Palette → **NVIDIA NIM: Manage NVIDIA NIM API Key**.
 NVIDIA_NIM_API_KEY=nvapi-… ./install.sh antigravity
 ```
 
+> **Status (2026-10-21): aguardando BYOK nativo liberado pela Google.** O Agent/Cascade nativo ainda não aceita modelo customizado para usuário final (sem setting de Base URL/chave; inferência no backend da Google). Quando isso for liberado, este harness migra para o painel nativo e o Cline vira legado. Até lá:
+
 O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script instala o [Cline](https://docs.cline.bot/), escolhe um modelo que **responde** nesta conta (smoke `chat/completions`; padrão `z-ai/glm-5.3`) e grava a configuração: provider **OpenAI Compatible**, Base URL `https://integrate.api.nvidia.com/v1`, modelo e chave (SecretStorage da IDE). **Feche o Antigravity antes de rodar** — a IDE sobrescreve o `state.vscdb` ao sair. O CLI `agy` só fala protocolo Gemini (`GOOGLE_GEMINI_BASE_URL`), não a API NIM.
 
 ## Diagnóstico

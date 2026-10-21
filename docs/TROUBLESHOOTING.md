@@ -34,7 +34,7 @@
 
 ## Antigravity: Cascade ignora Base URL / chave NVIDIA
 
-Esperado. O agente nativo não tem BYOK OpenAI-compatible — chaves inventadas em `settings.json` (`antigravity.openai-compatible.*`) não roteiam.
+Esperado. **Status (2026-10-21): aguardando BYOK nativo liberado pela Google.** O agente nativo não tem BYOK OpenAI-compatible para usuário final — sem setting de modelo/Base URL/chave na IDE, inferência no backend da Google (`cloudcode-pa.googleapis.com`), e o `CustomModels` do language server é config enterprise/eval vinda do servidor, não cadastro local. Chaves inventadas em `settings.json` (`antigravity.openai-compatible.*`) não roteiam. Quando a Google liberar, o harness passa a gravar no painel nativo.
 
 - Use o Cline (`saoudrizwan.claude-dev`) dentro do Antigravity: Provider **OpenAI Compatible**, Base URL `https://integrate.api.nvidia.com/v1`, chave `nvapi-…`, Model ID exato.
 - `./install.sh antigravity` (com a IDE **fechada**) grava isso automaticamente; `./install.sh antigravity --diagnose` mostra `cline cfg : provider=…` quando está aplicado.
