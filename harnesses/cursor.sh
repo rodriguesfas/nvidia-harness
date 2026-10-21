@@ -21,24 +21,25 @@ DO_TEST=1
 FORCE_OPEN=0
 
 # NIM: ids da conta NVIDIA. FREE: pool LiteLLM do OpenCode via proxy :12436.
+# Prefixo no picker: nvidia/… = NIM; opencode/… = pool grátis. Sem prefixo = Cursor nativo.
 CURSOR_NIM_MODELS=(
   "nvidia/nemotron-3-ultra-550b-a55b"
   "nvidia/nemotron-3.5-lightning-30b-a3b"
-  "openai/gpt-oss-20b"
-  "meta/llama-3.2-11b-vision-instruct"
+  "nvidia/openai/gpt-oss-20b"
+  "nvidia/meta/llama-3.2-11b-vision-instruct"
 )
 CURSOR_FREE_MODELS=(
-  "coder"
-  "fast"
-  "gemini-flash"
-  "gemini-lite"
-  "mistral-medium"
-  "mistral-small"
-  "codestral"
-  "openrouter-free"
-  "groq-gpt-oss-20b"
-  "groq-qwen3.8-27b"
-  "local-qwen7b"
+  "opencode/coder"
+  "opencode/fast"
+  "opencode/gemini-flash"
+  "opencode/gemini-lite"
+  "opencode/mistral-medium"
+  "opencode/mistral-small"
+  "opencode/codestral"
+  "opencode/openrouter-free"
+  "opencode/groq-gpt-oss-20b"
+  "opencode/groq-qwen3.8-27b"
+  "opencode/local-qwen7b"
 )
 
 cursor_settings_candidates() {
@@ -135,6 +136,14 @@ PY
   if [ -f "$STATE_DB" ]; then
     python3 - "$STATE_DB" <<'PY'
 import json, sqlite3, sys
+
+def bucket(m):
+    if m.startswith("opencode/") or m.startswith("free-router/"):
+        return "opencode"
+    if m.startswith("nvidia/") or m.startswith("meta/") or m.startswith("openai/"):
+        return "nvidia"
+    return "cursor"
+
 con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 row = con.execute("select value from ItemTable where key='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser'").fetchone()
 data = json.loads(row[0]) if row else {}
@@ -142,9 +151,14 @@ ai = data.get("aiSettings") or {}
 added = ai.get("userAddedModels") or []
 print(f"  useKey   : {data.get('useOpenAIKey')}")
 print(f"  stateUrl : {data.get('openAIBaseUrl')}")
-print(f"  models   : {', '.join(added) if added else '(nenhum)'}")
 secret = con.execute("select 1 from ItemTable where key='secret://cursorAuth/openAIKey'").fetchone()
 print(f"  secret   : {'presente' if secret else 'ausente'}")
+groups = {"nvidia": [], "opencode": [], "cursor": []}
+for m in added:
+    groups[bucket(m)].append(m)
+print("  nvidia   :", ", ".join(groups["nvidia"]) or "(nenhum)")
+print("  opencode :", ", ".join(groups["opencode"]) or "(nenhum — feche o Cursor e rode ./install.sh cursor --yes)")
+print("  cursor   :", "(nativos da IDE, fora desta lista)")
 PY
   fi
   if cursor_running; then
@@ -354,14 +368,21 @@ fi
 
 cat <<EOF
 
-Pronto (Cursor). Abra a IDE e escolha um modelo em Settings → Models:
+Pronto (Cursor). No picker, o prefixo diz a origem:
+
+  nvidia/…     NIM (conta NVIDIA)
+  opencode/…   pool grátis do OpenCode (LiteLLM :4000)
+  sem prefixo  nativos do Cursor (claude-*, gpt-5*, composer-*)
 
 EOF
-printf '  %s\n' "${ACTIVE_MODELS[@]}"
+echo "NVIDIA NIM:"
+printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  nvidia/' || echo "  (nenhum)"
+echo "OpenCode:"
+printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  opencode/' || echo "  (nenhum — LiteLLM :4000 ausente ou Cursor estava aberto)"
 if [ "$FREE_ON" != 1 ]; then
   echo
-  echo "Pool OpenCode (coder/fast/…) não entrou: LiteLLM em $NH_FREE_ROUTER_URL ausente."
-  echo "Com o free-router no ar, rode de novo: ./install.sh cursor --yes"
+  echo "Pool OpenCode não entrou: LiteLLM em $NH_FREE_ROUTER_URL ausente."
+  echo "Com o free-router no ar: ./install.sh cursor --yes"
 fi
 ok "cursor: proxy + NVIDIA NIM aplicados"
 echo "  diagnose: ./install.sh cursor --diagnose"

@@ -248,11 +248,23 @@ def normalize_payload(payload: dict, path: str) -> tuple[dict, str]:
 
 def canonical_free_router_model(model: str) -> str | None:
     name = (model or "").strip()
-    if name.startswith("free-router/"):
-        name = name.split("/", 1)[1]
+    for prefix in ("opencode/", "free-router/", "oc/"):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
     if name in FREE_ROUTER_MODELS:
         return name
     return None
+
+
+def canonical_nim_model(model: str) -> str:
+    """Picker usa nvidia/…; a NIM ainda espera o id do catálogo."""
+    name = (model or "").strip()
+    if name.startswith("nvidia/openai/"):
+        return "openai/" + name[len("nvidia/openai/") :]
+    if name.startswith("nvidia/meta/"):
+        return "meta/" + name[len("nvidia/meta/") :]
+    return name
 
 
 def merge_model_lists(nvidia: dict | None, free: dict | None, router_up: bool) -> dict:
@@ -265,9 +277,10 @@ def merge_model_lists(nvidia: dict | None, free: dict | None, router_up: bool) -
                 by_id[str(item["id"])] = item
     if router_up:
         for name in sorted(FREE_ROUTER_MODELS):
+            public = "opencode/" + name
             by_id.setdefault(
-                name,
-                {"id": name, "object": "model", "owned_by": "free-router"},
+                public,
+                {"id": public, "object": "model", "owned_by": "opencode"},
             )
     return {"object": "list", "data": list(by_id.values())}
 
@@ -311,15 +324,20 @@ def _selftest() -> None:
     assert body["max_tokens"] == GPT_OSS_20B_MAX_TOKENS
     assert all(t.get("type") == "function" for t in body["tools"])
     assert canonical_free_router_model("coder") == "coder"
+    assert canonical_free_router_model("opencode/fast") == "fast"
     assert canonical_free_router_model("free-router/fast") == "fast"
     assert canonical_free_router_model("openai/gpt-oss-20b") is None
+    assert canonical_nim_model("nvidia/openai/gpt-oss-20b") == "openai/gpt-oss-20b"
+    assert canonical_nim_model("nvidia/nemotron-3-ultra-550b-a55b") == (
+        "nvidia/nemotron-3-ultra-550b-a55b"
+    )
     merged = merge_model_lists(
         {"data": [{"id": "nvidia/nemotron-3-ultra-550b-a55b"}]},
         {"data": [{"id": "coder"}]},
         True,
     )
     ids = {m["id"] for m in merged["data"]}
-    assert "coder" in ids and "fast" in ids
+    assert "opencode/coder" in ids and "opencode/fast" in ids
     assert "nvidia/nemotron-3-ultra-550b-a55b" in ids
     print("selftest ok")
 
@@ -441,6 +459,7 @@ class Handler(BaseHTTPRequestHandler):
                 auth = f"Bearer {key}" if key else None
                 self._send_upstream("POST", out_path, raw, base=FREE_ROUTER, auth=auth)
                 return
+            body["model"] = canonical_nim_model(str(body.get("model") or ""))
             raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
             self._send_upstream("POST", out_path, raw)
             return
