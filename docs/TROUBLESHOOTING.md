@@ -19,6 +19,14 @@
 - Desative modelos OpenAI/Anthropic que não usa durante o verify.
 - Nomes de modelo precisam ser **exatos** (lista: `./install.sh cursor` ou `GET /v1/models`).
 
+## Cursor: configuração some / modelos NVIDIA não respondem
+
+- `./install.sh cursor` grava `useOpenAIKey=true`, a chave (SecretStorage) e os modelos no `state.vscdb`. **Com o Cursor aberto a gravação é recusada** — a IDE mantém o estado em memória e sobrescreve edições externas ao sair (confirmado na prática: edição com a IDE aberta é revertida).
+- Só 4 modelos responderam nesta conta (smoke `chat/completions` 200, 2026-10-21) e são os únicos ativados: `nvidia/nemotron-3-ultra-550b-a55b`, `nvidia/nemotron-3.5-lightning-30b-a3b`, `openai/gpt-oss-20b`, `meta/llama-3.2-11b-vision-instruct`.
+- Os demais ids testados falham: `404 Function … Not found for account` (ex.: `moonshotai/kimi-k2.6`, `nvidia/nemotron-3-super-120b-a12b`, `nvidia/nemotron-4-340b-instruct`, `nvidia/llama-3.1-nemotron-70b-instruct`, `deepseek-ai/deepseek-coder-6.7b-instruct`, `mistralai/*`, `google/gemma-3-*`), timeout >150 s (`deepseek-ai/deepseek-v4.1-flash`, `meta/llama-3.2-90b-vision-instruct`) ou nem constam no catálogo (`moonshotai/kimi-k3`). Estar em `GET /v1/models` **não** significa que o modelo responde.
+- `./install.sh cursor --diagnose` mostra `nim cfg : aplicada` quando baseUrl + `useOpenAIKey` + modelos validados + secret estão no lugar.
+- Backup da gravação fica em `~/.config/nvidia-harness/backups/cursor-state-<timestamp>.json` (só a linha `applicationUser` — o `state.vscdb` pode ter dezenas de GB; nunca copie o banco inteiro).
+
 ## OpenCode: provider não aparece
 
 - Confira `~/.config/opencode/opencode.json` (`provider.nvidia`).

@@ -5,7 +5,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 | Harness | O que o script faz |
 |---|---|
 | **Claude Code** | Proxy [LiteLLM](https://github.com/BerriAI/litellm) local + wrapper `claude-nvidia` |
-| **Cursor** | Grava `cursor.openai.baseUrl` e valida a API (Model Names são manuais na UI) |
+| **Cursor** | Grava `cursor.openai.baseUrl`, `useOpenAIKey`, ativa **só** modelos com smoke 200 e grava a chave no SecretStorage (feche o Cursor antes) |
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
 | **Antigravity** | Instala o [Cline](https://docs.cline.bot/) e **grava** OpenAI Compatible → NIM (provider/baseUrl/modelo no `state.vscdb` + chave no SecretStorage) |
@@ -69,7 +69,7 @@ Troca de modelo: edite `NV_MODEL` em `~/.config/claude-nvidia/env`, ou `NV_MODEL
 NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor
 ```
 
-Depois: **Ctrl+Shift+J → Models** → cole a chave OpenAI (`nvapi-…`) → adicione os Model Names listados pelo script. A base URL já fica em `settings.json`.
+**Feche o Cursor antes de rodar** — a IDE mantém o estado em memória e sobrescreve o `state.vscdb` ao sair. O script grava a configuração completa: base URL em `settings.json`, `useOpenAIKey=true`, chave no SecretStorage da IDE e, em *Settings → Models*, ativa **somente** os modelos com smoke `chat/completions` 200 nesta conta (verificado em 2026-10-21): `nvidia/nemotron-3-ultra-550b-a55b`, `nvidia/nemotron-3.5-lightning-30b-a3b`, `openai/gpt-oss-20b` e `meta/llama-3.2-11b-vision-instruct`. Qualquer outro id é desativado de propósito (404/timeout — ver `docs/TROUBLESHOOTING.md`).
 
 ### OpenCode
 
@@ -137,7 +137,7 @@ docs/TROUBLESHOOTING.md
 
 ## Limitações
 
-- Cursor: cadastro de Model Names continua manual (sem API estável da IDE).
+- Cursor: sem API estável da IDE para Model Names — o harness grava direto no `state.vscdb` (com a IDE fechada) e faz backup só da linha alterada, nunca do banco inteiro (que pode ter dezenas de GB).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`).
 - Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).
