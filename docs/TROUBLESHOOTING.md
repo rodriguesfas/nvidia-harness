@@ -1,5 +1,17 @@
 # Solução de problemas
 
+## `FORWARD_ARGS[@]: unbound variable` no menu
+
+O menu (qualquer opção **sem** flags) expandia `"${FORWARD_ARGS[@]}"` vazio com `set -u`. No bash < 4.4 isso aborta (`install.sh: FORWARD_ARGS[@]: unbound variable`) **antes** de chamar o harness. O instalador agora encaminha o array com `nh_call_a` (`set +u` só na expansão) e o menu repete se a opção for inválida.
+
+Prova: `./install.sh --self-test`. Atualize com `git pull` e rode o menu de novo.
+
+Workaround em clone antigo (sem atualizar):
+
+```bash
+NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
+```
+
 ## HTTP 401 / 403 na API NVIDIA
 
 - Gere uma chave nova em <https://build.nvidia.com>.
