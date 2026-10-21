@@ -24,12 +24,21 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
 - Veja `~/.config/claude-nvidia/litellm-*.log`.
 - Processo travado (Ctrl+Z): `ps -eo pid,stat,args | grep litellm` e `kill -9 <pid>`.
 
-## Cursor: Verify falha
+## Cursor: Verify falha / Agent 400 Pydantic
 
-- Confirme `cursor.openai.baseUrl` = `https://integrate.api.nvidia.com/v1`.
-- A chave deve ser a NVIDIA (`nvapi-…`) no campo OpenAI API Key.
-- Desative modelos OpenAI/Anthropic que não usa durante o verify.
-- Nomes de modelo precisam ser **exatos** (lista: `./install.sh cursor` ou `GET /v1/models`).
+O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o shim em `http://127.0.0.1:12436/v1` (`./install.sh cursor --yes`). Sem o proxy, Verify/Agent quebram mesmo com a chave certa.
+
+- `cursor.openai.baseUrl` e `openAIBaseUrl` no `state.vscdb` = `http://127.0.0.1:12436/v1`.
+- Chave OpenAI = `nvapi-…` (o proxy encaminha à NIM; nos ids `coder`/`fast`/… troca pela chave do LiteLLM).
+- `systemctl --user status nvidia-harness-cursor-proxy` (ou `./install.sh cursor --diagnose`).
+- Nomes de modelo são os que o smoke aprovou (`./install.sh cursor --diagnose`).
+
+## Cursor: configuração some / modelos NVIDIA não respondem
+
+- **Feche o Cursor** e rode `./install.sh cursor --yes`. Aberto, a IDE reverte o `state.vscdb` ao sair.
+- O script instala o proxy, prova `chat/completions` e grava só quem respondeu 200 **com texto**. Pool OpenCode (`coder`, `fast`, …) só entra se o LiteLLM `:4000` estiver no ar.
+- Estar em `GET /v1/models` **não** significa que o modelo responde (404 “Function not found for account”, timeout, vazio).
+- Backup: `~/.config/nvidia-harness/backups/cursor-state-<timestamp>.json` (só a linha `applicationUser` — nunca copie o `state.vscdb` inteiro).
 
 ## OpenCode: provider não aparece
 

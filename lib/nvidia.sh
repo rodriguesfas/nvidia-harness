@@ -147,6 +147,23 @@ nh_smoke_chat() {
     || true)"
   case "$code" in
     200)
+      if [ "${NH_SMOKE_REQUIRE_CONTENT:-0}" = 1 ]; then
+        if ! python3 - "$body" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+if d.get("error"):
+    raise SystemExit(1)
+msg = ((d.get("choices") or [{}])[0].get("message") or {})
+content = (msg.get("content") or "").strip()
+tools = msg.get("tool_calls") or []
+raise SystemExit(0 if content or tools else 1)
+PY
+        then
+          aviso "smoke chat: HTTP 200 sem conteúdo útil ($model)"
+          rm -f "$body"
+          return 1
+        fi
+      fi
       ok "smoke chat OK ($model)"
       rm -f "$body"
       return 0
