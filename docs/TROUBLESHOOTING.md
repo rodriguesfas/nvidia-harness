@@ -37,7 +37,9 @@
 Esperado. O agente nativo não tem BYOK OpenAI-compatible — chaves inventadas em `settings.json` (`antigravity.openai-compatible.*`) não roteiam.
 
 - Use o Cline (`saoudrizwan.claude-dev`) dentro do Antigravity: Provider **OpenAI Compatible**, Base URL `https://integrate.api.nvidia.com/v1`, chave `nvapi-…`, Model ID exato.
-- Reinstale/oriente com `./install.sh antigravity`.
+- `./install.sh antigravity` (com a IDE **fechada**) grava isso automaticamente; `./install.sh antigravity --diagnose` mostra `cline cfg : provider=…` quando está aplicado.
+- `state.vscdb` editado com a IDE aberta é perdido: ela mantém o estado em memória e regrava ao sair.
+- Modelo listado em `/models` pode retornar 404 (sem função na conta) ou 410 (end-of-life) — o script só escolhe modelo com smoke 200.
 - `agy` só aceita endpoint Gemini (`GOOGLE_GEMINI_BASE_URL` + `GEMINI_API_KEY`); não use a URL NIM aí.
 
 ## Smoke test lento / timeout

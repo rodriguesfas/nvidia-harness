@@ -8,7 +8,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 | **Cursor** | Grava `cursor.openai.baseUrl` e valida a API (Model Names são manuais na UI) |
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
-| **Antigravity** | Valida a API, instala [Cline](https://docs.cline.bot/) e orienta OpenAI Compatible → NIM |
+| **Antigravity** | Instala o [Cline](https://docs.cline.bot/) e **grava** OpenAI Compatible → NIM (provider/baseUrl/modelo no `state.vscdb` + chave no SecretStorage) |
 
 Um único ponto de entrada, módulos por harness, chave compartilhada em `~/.config/nvidia-harness/env` (permissão `600`). **Nunca** versionamos tokens.
 
@@ -92,7 +92,7 @@ Depois: Command Palette → **NVIDIA NIM: Manage NVIDIA NIM API Key**.
 NVIDIA_NIM_API_KEY=nvapi-… ./install.sh antigravity
 ```
 
-O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script instala o [Cline](https://docs.cline.bot/) e orienta: **OpenAI Compatible** → Base URL `https://integrate.api.nvidia.com/v1` → chave `nvapi-…` → Model ID (ex.: `nvidia/nemotron-3-super-120b-a12b`). O CLI `agy` só fala protocolo Gemini (`GOOGLE_GEMINI_BASE_URL`), não a API NIM.
+O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script instala o [Cline](https://docs.cline.bot/), escolhe um modelo que **responde** nesta conta (smoke `chat/completions`; padrão `z-ai/glm-5.3`) e grava a configuração: provider **OpenAI Compatible**, Base URL `https://integrate.api.nvidia.com/v1`, modelo e chave (SecretStorage da IDE). **Feche o Antigravity antes de rodar** — a IDE sobrescreve o `state.vscdb` ao sair. O CLI `agy` só fala protocolo Gemini (`GOOGLE_GEMINI_BASE_URL`), não a API NIM.
 
 ## Diagnóstico
 
