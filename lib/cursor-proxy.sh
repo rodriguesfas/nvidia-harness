@@ -204,9 +204,38 @@ nh_start_cursor_proxy_bg() {
   echo $! > "$pidf"
 }
 
+nh_cursor_ide_running() {
+  pgrep -f "/usr/share/cursor/cursor" >/dev/null 2>&1 \
+    || pgrep -x cursor >/dev/null 2>&1
+}
+
+# Troca o processo antigo pelo shim novo (prefixo opencode/…). Não faz isso
+# com a IDE aberta — ela está usando a porta.
+nh_reload_cursor_proxy() {
+  if nh_cursor_ide_running; then
+    aviso "Cursor aberto: proxy em execução fica como está; feche a IDE e rode de novo para carregar opencode/…"
+    return 0
+  fi
+  has_cmd systemctl || return 0
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  if systemctl --user is-active nvidia-cursor-proxy.service >/dev/null 2>&1; then
+    systemctl --user stop nvidia-cursor-proxy.service >/dev/null 2>&1 || true
+  fi
+  if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
+    systemctl --user restart "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1 || true
+  fi
+  local _
+  for _ in 1 2 3 4 5 6 7 8; do
+    cursor_proxy_up && { ok "proxy recarregado ($CURSOR_PROXY_URL)"; return 0; }
+    sleep 0.3
+  done
+  return 0
+}
+
 nh_ensure_cursor_proxy() {
   nh_detect_free_router_env
   nh_try_start_free_router || true
   nh_install_cursor_proxy_files
   nh_start_cursor_proxy
+  nh_reload_cursor_proxy
 }
