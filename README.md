@@ -5,7 +5,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 | Harness | O que o script faz |
 |---|---|
 | **Claude Code** | Proxy [LiteLLM](https://github.com/BerriAI/litellm) local + wrapper `claude-nvidia` |
-| **Cursor** | Grava `cursor.openai.baseUrl`, `useOpenAIKey`, ativa **só** modelos com smoke 200 e grava a chave no SecretStorage (feche o Cursor antes) |
+| **Cursor** | Instala o proxy local (`:12436`), grava Base URL + chave + **só** modelos com smoke 200 (NIM e, se o LiteLLM `:4000` estiver no ar, `coder`/`fast`/…). Feche o Cursor antes. |
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
 | **Antigravity** | Instala o [Cline](https://docs.cline.bot/) e **grava** OpenAI Compatible → NIM (provider/baseUrl/modelo no `state.vscdb` + chave no SecretStorage) |
@@ -66,10 +66,25 @@ Troca de modelo: edite `NV_MODEL` em `~/.config/claude-nvidia/env`, ou `NV_MODEL
 ### Cursor
 
 ```bash
-NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor
+NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
 ```
 
-**Feche o Cursor antes de rodar** — a IDE mantém o estado em memória e sobrescreve o `state.vscdb` ao sair. O script grava a configuração completa: base URL em `settings.json`, `useOpenAIKey=true`, chave no SecretStorage da IDE e, em *Settings → Models*, ativa **somente** os modelos com smoke `chat/completions` 200 nesta conta (verificado em 2026-10-21): `nvidia/nemotron-3-ultra-550b-a55b`, `nvidia/nemotron-3.5-lightning-30b-a3b`, `openai/gpt-oss-20b` e `meta/llama-3.2-11b-vision-instruct`. Qualquer outro id é desativado de propósito (404/timeout — ver `docs/TROUBLESHOOTING.md`).
+**Feche o Cursor, rode o comando, abra de novo.** Nada para colar na UI: o script (1) instala o shim em `~/.config/nvidia-harness/bin/nvidia-cursor-proxy.py` e sobe `nvidia-harness-cursor-proxy.service` (`http://127.0.0.1:12436/v1`), (2) prova `chat/completions` e (3) grava Base URL, `useOpenAIKey`, chave no SecretStorage e só os ids que responderam.
+
+O proxy é obrigatório — o Agent do Cursor manda `content` em lista; a NIM rejeita isso com 400. Ids NVIDIA passam pelo shim para `integrate.api.nvidia.com`. Ids do OpenCode (`coder`, `fast`, `gemini-lite`, …) só entram se o LiteLLM em `:4000` (free-router) estiver no ar; senão o harness segue só com a NIM.
+
+Sem `git clone` (tarball em `/tmp`, apaga ao sair):
+
+```bash
+NVIDIA_NIM_API_KEY=nvapi-… bash -c '
+set -euo pipefail
+d=$(mktemp -d)
+trap "rm -rf \"$d\"" EXIT
+curl -fsSL https://github.com/rodriguesfas/nvidia-harness/archive/refs/heads/main.tar.gz \
+  | tar -xz -C "$d" --strip-components=1
+"$d/install.sh" cursor --yes
+'
+```
 
 ### OpenCode
 
@@ -116,6 +131,8 @@ O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script ins
 install.sh              # entrada (menu / CLI)
 lib/common.sh           # log, backup, confirm
 lib/nvidia.sh           # chave compartilhada + /models + validação via chat
+lib/cursor-proxy.sh     # instala/sobe o shim :12436
+proxy/nvidia-cursor-proxy.py
 harnesses/claude.sh
 harnesses/cursor.sh
 harnesses/opencode.sh
@@ -137,7 +154,7 @@ docs/TROUBLESHOOTING.md
 
 ## Limitações
 
-- Cursor: sem API estável da IDE para Model Names — o harness grava direto no `state.vscdb` (com a IDE fechada) e faz backup só da linha alterada, nunca do banco inteiro (que pode ter dezenas de GB).
+- Cursor: o Agent exige o proxy local (`:12436`) para flatten Harmony. Pool OpenCode (`coder`/`fast`) só entra com LiteLLM em `:4000`. A IDE tem de estar **fechada** para gravar o `state.vscdb` (backup só da linha alterada — o banco pode ter dezenas de GB).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`).
 - Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).

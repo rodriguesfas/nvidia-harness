@@ -155,7 +155,10 @@ self_test() {
   out="$(run_harness_fwd cursor --diagnose)"
   [ "$out" = "run name=cursor argc=2" ] || erro "self-test fwd FORWARD_ARGS unset: got '$out'"
 
-  ok "self-test ok (array vazio/unset não dispara unbound variable)"
+  python3 "$NH_ROOT/proxy/nvidia-cursor-proxy.py" --selftest >/dev/null \
+    || erro "self-test do proxy Cursor falhou"
+
+  ok "self-test ok (array vazio/unset + proxy Cursor)"
   exit 0
 }
 

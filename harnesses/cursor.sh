@@ -1,21 +1,10 @@
 #!/usr/bin/env bash
-# Harness: Cursor IDE → NVIDIA NIM (OpenAI-compatible).
-# Aplica a configuração COMPLETA que sabemos funcionar nesta conta:
-#   - settings.json: cursor.openai.baseUrl → https://integrate.api.nvidia.com/v1
-#   - state.vscdb (reactive storage applicationUser):
-#       useOpenAIKey=true, openAIBaseUrl=<base>, aiSettings.userAddedModels /
-#       modelOverrideEnabled contendo SOMENTE modelos com smoke
-#       chat/completions 200 nesta conta (os demais são desativados)
-#   - chave no SecretStorage da IDE (secret://cursorAuth/openAIKey, OSCrypt
-#     v11 com a senha "Cursor Safe Storage" do gnome-keyring, via python3)
-# Modelos fora dessa lista falham na prática: 404 "Function not found for
-# account" (listado em /models sem função provisionada), timeout >150s ou
-# id inexistente no catálogo — verificado em 2026-10-21.
+# Harness: Cursor IDE → proxy local → NVIDIA NIM (+ pool grátis OpenCode se :4000).
 #
-# Requer o Cursor FECHADO ao gravar o state.vscdb: a IDE mantém o estado em
-# memória e sobrescreveria a edição externa ao sair (confirmado na prática).
-# O state.vscdb do Cursor pode ter dezenas de GB — o backup é só da linha
-# applicationUser (JSON), nunca uma cópia do banco inteiro.
+# Sem passo manual na UI: instala o shim (flatten Harmony + rota coder/fast),
+# sobe systemd --user, grava settings.json, useOpenAIKey, modelos com smoke
+# 200+conteúdo e a chave no SecretStorage. Feche o Cursor antes de gravar o
+# state.vscdb — a IDE reverte edição externa ao sair.
 # shellcheck disable=SC1090,SC1091
 set -euo pipefail
 
@@ -24,21 +13,34 @@ _HDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_HDIR/../lib/common.sh"
 # shellcheck source=../lib/nvidia.sh
 source "$_HDIR/../lib/nvidia.sh"
+# shellcheck source=../lib/cursor-proxy.sh
+source "$_HDIR/../lib/cursor-proxy.sh"
 
 DO_DIAGNOSE=0
 DO_TEST=1
+FORCE_OPEN=0
 
-# Únicos modelos que responderam (chat/completions 200) nesta conta em
-# 2026-10-21. Não adicionar modelo sem smoke 200 — /models lista ids que
-# retornam 404/timeout. Os desativados conhecidos estão em docs/TROUBLESHOOTING.md.
-CURSOR_MODELS=(
+# NIM: ids da conta NVIDIA. FREE: pool LiteLLM do OpenCode via proxy :12436.
+CURSOR_NIM_MODELS=(
   "nvidia/nemotron-3-ultra-550b-a55b"
   "nvidia/nemotron-3.5-lightning-30b-a3b"
   "openai/gpt-oss-20b"
   "meta/llama-3.2-11b-vision-instruct"
 )
+CURSOR_FREE_MODELS=(
+  "coder"
+  "fast"
+  "gemini-flash"
+  "gemini-lite"
+  "mistral-medium"
+  "mistral-small"
+  "codestral"
+  "openrouter-free"
+  "groq-gpt-oss-20b"
+  "groq-qwen3.8-27b"
+  "local-qwen7b"
+)
 
-# Possíveis caminhos do settings.json (AppImage / .deb / flatpak-ish).
 cursor_settings_candidates() {
   cat <<EOF
 $HOME/.config/Cursor/User/settings.json
@@ -65,17 +67,23 @@ cursor_running() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --api-key) NH_API_KEY_IN="${2:?}"; export NH_API_KEY_IN; shift 2 ;;
+    --api-key)
+      [ -n "${2:-}" ] || erro "--api-key exige o valor nvapi-…"
+      NH_API_KEY_IN="$2"
+      export NH_API_KEY_IN
+      shift 2
+      ;;
     --no-test) DO_TEST=0; shift ;;
     --diagnose) DO_DIAGNOSE=1; shift ;;
     --yes|-y) NH_YES=1; export NH_YES; shift ;;
+    --force-open) FORCE_OPEN=1; shift ;;
     -h|--help)
       cat <<EOF
-Uso: ./harnesses/cursor.sh [--api-key nvapi-…] [--no-test] [--diagnose] [--yes]
-Aplica no Cursor a configuração NVIDIA NIM validada: baseUrl em settings.json,
-useOpenAIKey + somente os modelos com smoke 200 no state.vscdb e a chave no
-SecretStorage da IDE. Feche o Cursor antes de rodar (ele sobrescreve o
-state.vscdb ao sair).
+Uso: ./harnesses/cursor.sh [--api-key nvapi-…] [--no-test] [--diagnose] [--yes] [--force-open]
+Instala o proxy local (:12436), valida modelos e grava a config no Cursor
+(baseUrl, useOpenAIKey, modelos com smoke, chave). Feche o Cursor antes
+(ou --force-open). Pool OpenCode (coder/fast/…) só entra se o LiteLLM :4000
+estiver no ar.
 EOF
       exit 0
       ;;
@@ -88,16 +96,19 @@ STATE_DB="$(dirname "$SETTINGS")/globalStorage/state.vscdb"
 APPUSER_KEY='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser'
 
 cursor_configured() {
+  local want="${1:-}"
   [ -f "$STATE_DB" ] || return 1
-  python3 - "$STATE_DB" "$NVIDIA_BASE_URL" "${CURSOR_MODELS[*]}" <<'PY' >/dev/null 2>&1
+  python3 - "$STATE_DB" "$CURSOR_PROXY_URL" "$want" <<'PY' >/dev/null 2>&1
 import json, sqlite3, sys
 con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 row = con.execute("select value from ItemTable where key='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser'").fetchone()
 data = json.loads(row[0]) if row else {}
-want = sys.argv[3].split()
+proxy, want = sys.argv[2], sys.argv[3].split()
 added = (data.get("aiSettings") or {}).get("userAddedModels") or []
-ok = (data.get("useOpenAIKey") is True and data.get("openAIBaseUrl") == sys.argv[2]
-      and bool(added) and all(m in want for m in added))
+ok = (data.get("useOpenAIKey") is True
+      and data.get("openAIBaseUrl") == proxy
+      and bool(added)
+      and (not want or added == want))
 secret = con.execute("select 1 from ItemTable where key='secret://cursorAuth/openAIKey'").fetchone()
 sys.exit(0 if ok and secret else 1)
 PY
@@ -118,17 +129,22 @@ except Exception as e:
 print('  baseUrl  :', d.get('cursor.openai.baseUrl') or '(não definido)')
 PY
   fi
+  printf '  proxy    : %s (%s)\n' "$CURSOR_PROXY_URL" "$(cursor_proxy_up && echo ativo || echo ausente)"
+  printf '  free-rtr : %s (%s)\n' "$NH_FREE_ROUTER_URL" "$(nh_free_router_up && echo ativo || echo ausente)"
   printf '  state db : %s (%s)\n' "$STATE_DB" "$([ -f "$STATE_DB" ] && echo presente || echo ausente)"
-  if cursor_configured; then
-    printf '  nim cfg  : aplicada (useOpenAIKey + %s modelos validados + secret presente)\n' "${#CURSOR_MODELS[@]}"
-  elif [ -f "$STATE_DB" ]; then
-    python3 - "$STATE_DB" <<'PY' 2>/dev/null || printf '  nim cfg  : NÃO aplicada\n'
+  if [ -f "$STATE_DB" ]; then
+    python3 - "$STATE_DB" <<'PY'
 import json, sqlite3, sys
 con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 row = con.execute("select value from ItemTable where key='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser'").fetchone()
 data = json.loads(row[0]) if row else {}
 ai = data.get("aiSettings") or {}
-print(f"  nim cfg  : NÃO aplicada (useOpenAIKey={data.get('useOpenAIKey')}, userAddedModels={ai.get('userAddedModels')})")
+added = ai.get("userAddedModels") or []
+print(f"  useKey   : {data.get('useOpenAIKey')}")
+print(f"  stateUrl : {data.get('openAIBaseUrl')}")
+print(f"  models   : {', '.join(added) if added else '(nenhum)'}")
+secret = con.execute("select 1 from ItemTable where key='secret://cursorAuth/openAIKey'").fetchone()
+print(f"  secret   : {'presente' if secret else 'ausente'}")
 PY
   fi
   if cursor_running; then
@@ -145,78 +161,118 @@ fi
 need_cmd python3
 need_cmd curl
 nh_resolve_api_key
+nh_ensure_cursor_proxy || aviso "seguindo sem proxy local — Agent do Cursor pode falhar no flatten Harmony"
 
-# Smoke em cada candidato: só entra no Cursor quem responder 200 nesta conta.
+CURSOR_BASE_URL="$NVIDIA_BASE_URL"
+FREE_ON=0
+if cursor_proxy_up; then
+  CURSOR_BASE_URL="$CURSOR_PROXY_URL"
+  if nh_free_router_up; then
+    FREE_ON=1
+    ok "proxy + pool OpenCode (:4000) — NIM e coder/fast/…"
+  else
+    ok "proxy Cursor ativo — só NIM neste host (LiteLLM :4000 ausente)"
+  fi
+else
+  aviso "proxy $CURSOR_PROXY_URL ausente — Base URL NVIDIA direta (sem flatten, sem coder/fast)"
+fi
+
 ACTIVE_MODELS=()
 if [ "$DO_TEST" = 1 ]; then
-  log "validando modelos candidatos (chat/completions)"
-  for m in "${CURSOR_MODELS[@]}"; do
+  log "validando modelos candidatos (chat/completions, exige conteúdo)"
+  NVIDIA_BASE_URL_ORIG="$NVIDIA_BASE_URL"
+  NVIDIA_BASE_URL="$CURSOR_BASE_URL" NH_SMOKE_REQUIRE_CONTENT=1
+  export NVIDIA_BASE_URL NH_SMOKE_REQUIRE_CONTENT
+  for m in "${CURSOR_NIM_MODELS[@]}"; do
     if NH_SMOKE_STRICT=0 nh_smoke_chat "$m"; then
       ACTIVE_MODELS+=("$m")
     else
-      aviso "desativando $m (sem resposta útil nesta conta)"
+      aviso "desativando $m (NIM sem resposta útil nesta conta)"
     fi
   done
+  if [ "$FREE_ON" = 1 ]; then
+    for m in "${CURSOR_FREE_MODELS[@]}"; do
+      if NH_SMOKE_STRICT=0 nh_smoke_chat "$m"; then
+        ACTIVE_MODELS+=("$m")
+      else
+        aviso "desativando $m (pool OpenCode sem conteúdo útil agora)"
+      fi
+    done
+  fi
+  NVIDIA_BASE_URL="$NVIDIA_BASE_URL_ORIG"
+  export NVIDIA_BASE_URL
   [ "${#ACTIVE_MODELS[@]}" -gt 0 ] || erro "nenhum modelo validado respondeu nesta conta — nada a aplicar"
   NH_KEY_VALIDATED=1; export NH_KEY_VALIDATED
 else
-  aviso "pulando smoke (--no-test); ativando os ${#CURSOR_MODELS[@]} modelos validados em 2026-10-21 sem prova atual"
-  ACTIVE_MODELS=("${CURSOR_MODELS[@]}")
+  aviso "pulando smoke (--no-test); ativando candidatos sem prova atual"
+  ACTIVE_MODELS=("${CURSOR_NIM_MODELS[@]}")
+  if [ "$FREE_ON" = 1 ]; then
+    ACTIVE_MODELS+=("${CURSOR_FREE_MODELS[@]}")
+  fi
 fi
 ok "modelos ativos: ${ACTIVE_MODELS[*]}"
 
 nh_save_shared_env
+nh_write_proxy_env
 
-log "configurando $SETTINGS"
-ensure_dir "$(dirname "$SETTINGS")"
-if [ -f "$SETTINGS" ]; then
-  current="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("cursor.openai.baseUrl") or "")' "$SETTINGS" 2>/dev/null || true)"
-  if [ "$current" = "$NVIDIA_BASE_URL" ]; then
-    ok "baseUrl já está correta — nada a gravar"
-  else
-    if [ -n "$current" ]; then
-      confirm "Substituir cursor.openai.baseUrl ($current → $NVIDIA_BASE_URL)?" || {
+cursor_write_settings() {
+  local current=""
+  ensure_dir "$(dirname "$SETTINGS")"
+  if [ -f "$SETTINGS" ]; then
+    current="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("cursor.openai.baseUrl") or "")' "$SETTINGS" 2>/dev/null || true)"
+  fi
+  if [ "$current" = "$CURSOR_BASE_URL" ]; then
+    ok "baseUrl já está correta"
+    return 0
+  fi
+  case "$current" in
+    ""|"$NVIDIA_BASE_URL"|"$CURSOR_PROXY_URL"|"http://127.0.0.1:12436/v1"|"https://integrate.api.nvidia.com/v1")
+      ;;
+    *)
+      confirm "Substituir cursor.openai.baseUrl ($current → $CURSOR_BASE_URL)?" || {
         aviso "mantendo settings intacto"
-        current_skip=1
+        return 0
       }
-    fi
-    if [ "${current_skip:-0}" != 1 ]; then
-      bak="$(backup_file "$SETTINGS")"
-      [ -n "$bak" ] && ok "backup: $bak"
-      NVIDIA_BASE_URL="$NVIDIA_BASE_URL" SETTINGS="$SETTINGS" python3 <<'PY'
+      ;;
+  esac
+  if [ -f "$SETTINGS" ]; then
+    bak="$(backup_file "$SETTINGS")"
+    [ -n "$bak" ] && ok "backup: $bak"
+  fi
+  CURSOR_BASE_URL="$CURSOR_BASE_URL" SETTINGS="$SETTINGS" python3 <<'PY'
 import json, os, pathlib
 p = pathlib.Path(os.environ["SETTINGS"])
 data = json.loads(p.read_text()) if p.exists() else {}
-data["cursor.openai.baseUrl"] = os.environ["NVIDIA_BASE_URL"]
+data["cursor.openai.baseUrl"] = os.environ["CURSOR_BASE_URL"]
+p.parent.mkdir(parents=True, exist_ok=True)
 p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 print("gravado:", p)
 PY
-      ok "cursor.openai.baseUrl = $NVIDIA_BASE_URL"
-    fi
-  fi
-else
-  confirm "Criar $SETTINGS com baseUrl NVIDIA?" || erro "abortado"
-  NVIDIA_BASE_URL="$NVIDIA_BASE_URL" SETTINGS="$SETTINGS" python3 <<'PY'
-import json, os, pathlib
-p = pathlib.Path(os.environ["SETTINGS"])
-p.parent.mkdir(parents=True, exist_ok=True)
-data = {"cursor.openai.baseUrl": os.environ["NVIDIA_BASE_URL"]}
-p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-print("criado:", p)
-PY
-  ok "settings criado"
-fi
+  ok "cursor.openai.baseUrl = $CURSOR_BASE_URL"
+}
 
-# --- Gravar modelos + chave no state.vscdb ------------------------------------
+cursor_write_settings
+
 if cursor_running; then
-  erro "Cursor está aberto e sobrescreveria o state.vscdb ao sair. Feche o Cursor e rode de novo (chave/modelos já validados; baseUrl já gravada)."
+  if [ "$FORCE_OPEN" = 1 ]; then
+    aviso "Cursor aberto (--force-open): gravando state.vscdb; a IDE pode reverter ao sair"
+  else
+    aviso "proxy e settings prontos. Feche o Cursor e rode de novo para gravar modelos/chave no state.vscdb:"
+    echo "  NVIDIA_NIM_API_KEY=… ./install.sh cursor --yes"
+    exit 0
+  fi
 fi
-[ -f "$STATE_DB" ] || erro "state.vscdb não encontrado: $STATE_DB (abra o Cursor ao menos uma vez)"
+[ -f "$STATE_DB" ] || erro "state.vscdb não encontrado: $STATE_DB (abra o Cursor ao menos uma vez, feche, e rode de novo)"
 
-confirm "Gravar no Cursor somente os modelos validados (${ACTIVE_MODELS[*]}) e a chave NVIDIA?" || { aviso "state.vscdb não gravado"; exit 0; }
+if ! python3 -c 'import secretstorage, cryptography' >/dev/null 2>&1; then
+  aviso "instalando secretstorage+cryptography (pip --user) para gravar a chave no Cursor"
+  python3 -m pip install --user -q secretstorage cryptography >/dev/null 2>&1 \
+    || aviso "pip --user falhou; se a chave não gravar, cole uma vez em Settings → Models"
+fi
 
+log "gravando modelos validados e chave no Cursor"
 ensure_dir "$NH_CONFIG_DIR/backups"
-CURSOR_API_KEY="$NH_API_KEY" CURSOR_BASE_URL="$NVIDIA_BASE_URL" \
+CURSOR_API_KEY="$NH_API_KEY" CURSOR_BASE_URL="$CURSOR_BASE_URL" \
 CURSOR_MODELS_JOINED="${ACTIVE_MODELS[*]}" NH_BACKUP_DIR="$NH_CONFIG_DIR/backups" \
 python3 - "$STATE_DB" "$APPUSER_KEY" <<'PY'
 import datetime, json, os, pathlib, sqlite3, sys
@@ -230,7 +286,6 @@ row = con.execute("select value from ItemTable where key=?", (appkey,)).fetchone
 data = json.loads(row[0]) if row else {}
 secret_row = con.execute("select value from ItemTable where key='secret://cursorAuth/openAIKey'").fetchone()
 
-# Backup SOMENTE das linhas tocadas (o banco pode ter dezenas de GB).
 bak_dir = pathlib.Path(os.environ["NH_BACKUP_DIR"]); bak_dir.mkdir(parents=True, exist_ok=True)
 stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 bak = bak_dir / f"cursor-state-{stamp}.json"
@@ -256,7 +311,6 @@ if row:
 else:
     con.execute("insert into ItemTable (key, value) values (?, ?)", (appkey, value))
 
-# Chave no SecretStorage (OSCrypt v11: PBKDF2-SHA1(saltysalt,1,16) + AES-128-CBC, IV=16 espaços)
 secret_ok = False
 try:
     import secretstorage
@@ -285,29 +339,29 @@ try:
         else:
             con.execute("insert into ItemTable (key, value) values (?, ?)", (skey, sval))
         secret_ok = True
-except Exception as exc:  # sem keyring: modelos ficam; chave é colada 1x na UI
+except Exception as exc:
     print(f"aviso: SecretStorage indisponível ({type(exc).__name__}); cole a chave uma vez no Cursor", file=sys.stderr)
 con.commit(); con.close()
 print("desativados:", ", ".join(removed) if removed else "(nenhum)")
 print("secret_ok=1" if secret_ok else "secret_ok=0")
 PY
 
-if cursor_configured; then
-  ok "Cursor configurado: baseUrl + useOpenAIKey + ${#ACTIVE_MODELS[@]} modelos validados + chave no SecretStorage"
+if cursor_configured "${ACTIVE_MODELS[*]}"; then
+  ok "Cursor configurado: proxy + ${#ACTIVE_MODELS[@]} modelos validados + chave"
 else
-  aviso "state.vscdb gravado, mas a conferência falhou (se secret_ok=0, cole a chave uma vez: Ctrl+Shift+J → Models → OpenAI API Key: $(mask_key "$NH_API_KEY") — arquivo 600 em $NH_ENVF)"
+  aviso "state.vscdb gravado; se a chave não aparecer, cole uma vez em Settings → Models ($(mask_key "$NH_API_KEY"))"
 fi
 
 cat <<EOF
 
-Pronto (Cursor). Abra a IDE e escolha um dos modelos validados em Settings → Models:
+Pronto (Cursor). Abra a IDE e escolha um modelo em Settings → Models:
 
 EOF
 printf '  %s\n' "${ACTIVE_MODELS[@]}"
-cat <<EOF
-
-Qualquer outro id da NVIDIA está desativado de propósito (404/timeout nesta
-conta). Para reativar um modelo no futuro, prove antes com chat/completions.
-EOF
-ok "cursor: configuração NVIDIA NIM aplicada"
+if [ "$FREE_ON" != 1 ]; then
+  echo
+  echo "Pool OpenCode (coder/fast/…) não entrou: LiteLLM em $NH_FREE_ROUTER_URL ausente."
+  echo "Com o free-router no ar, rode de novo: ./install.sh cursor --yes"
+fi
+ok "cursor: proxy + NVIDIA NIM aplicados"
 echo "  diagnose: ./install.sh cursor --diagnose"
