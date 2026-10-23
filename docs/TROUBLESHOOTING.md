@@ -54,6 +54,12 @@ O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o
 - Reinicie o OpenCode após gravar.
 - Permissão do arquivo deve ser `600`.
 
+## OpenCode: UI trava / `ProviderHeaderTimeoutError` 300000ms
+
+O Desktop não crasha: o modelo da sessão não devolve header. `deepseek-ai/deepseek-v4.1-flash` hosted timeouta ~5 min (6 retries). `moonshotai/kimi-k3` é 410 desde 2026-10-15. `./install.sh opencode --set-default` aponta o default e os agentes `agent`/`debug`/`multitask` para `nvidia/nemotron-3.5-super-vl-120b-a12b` e remove o K3 da lista. Sessão antiga guarda o modelo morto — abra uma sessão nova.
+
+Pool grátis do OpenCode (`flint-40b-free`, `beam-free`) também cai (`Endpoint is unavailable` / `permissions` não suportado). Não uses como fallback do DeepSeek.
+
 ## VS Code: modelos NIM não listam
 
 - Extensão `hidenobunagai.nvidia-nim-provider` instalada?
