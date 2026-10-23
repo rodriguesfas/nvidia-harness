@@ -13,6 +13,8 @@ _HDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_HDIR/../lib/common.sh"
 # shellcheck source=../lib/nvidia.sh
 source "$_HDIR/../lib/nvidia.sh"
+# shellcheck source=../lib/claude-proxy.sh
+source "$_HDIR/../lib/claude-proxy.sh"
 
 PREFIX="$HOME"
 BIN_DIR="$PREFIX/.local/bin"
@@ -76,6 +78,16 @@ nh_diagnose_claude() {
     _names="$(grep -E '^[[:space:]]*-[[:space:]]*model_name:' "$CONF" | sed -E 's/.*model_name:[[:space:]]*//' || true)"
     printf '  nvidia   : %s\n' "$(printf '%s\n' "$_names" | grep '^nvidia-' | paste -sd', ' - || echo '(nenhum)')"
     printf '  opencode : %s\n' "$(printf '%s\n' "$_names" | grep '^opencode-' | paste -sd', ' - || echo '(nenhum — LiteLLM :4000 ausente na instalação)')"
+  fi
+  NH_CLAUDE_CONFIG_DIR="$CONFIG_DIR" NH_CLAUDE_VENV_DIR="$VENV_DIR" nh_diagnose_claude_proxy
+  if [ -f "$SETTINGS" ]; then
+    python3 - "$SETTINGS" <<'PY' || true
+import json, sys
+d = json.load(open(sys.argv[1]))
+env = d.get("env") or {}
+print("  base URL : %s" % (env.get("ANTHROPIC_BASE_URL") or "(não gravado em settings.json)"))
+print("  default  : %s" % (d.get("model") or "(sem model)"))
+PY
   fi
 }
 
@@ -336,6 +348,12 @@ source "$CONFIG_DIR/env"
 
 echo "Modelo principal: $MODEL -> ${NV_MODEL#nvidia_nim/} | pequeno: ${NV_SMALL_MODEL#nvidia_nim/}"
 
+# Sem isto o modo interativo fala com api.anthropic.com (ECONNREFUSED se
+# essa rota estiver bloqueada) e ignora o proxy LiteLLM.
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-1}"
+export CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS="${CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS:-1}"
+unset ANTHROPIC_API_KEY || true
+
 proxy_pid=""
 
 # O LiteLLM fica preso em "Waiting for background tasks to complete"; então
@@ -414,7 +432,16 @@ fi
 
 PORT=""
 reusando=0
+# Serviço persistente: reusa :4310 e não mata ao sair (senão a extensão
+# Cursor/VS Code fica com ECONNREFUSED na ANTHROPIC_BASE_URL morta).
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user is-active nvidia-harness-claude-proxy.service >/dev/null 2>&1 \
+  && http_ok 4310 5; then
+  PORT=4310
+  reusando=1
+fi
 for p in "${candidatas[@]}"; do
+  [ -z "$PORT" ] || break
   if ! porta_tem_listener "$p"; then PORT="$p"; break; fi
   if proxy_compativel "$p"; then PORT="$p"; reusando=1; break; fi
 
@@ -521,7 +548,9 @@ ok "wrapper em $WRAPPER"
 # Só mexe em modelPicker.options das linhas nvidia-/opencode-;
 # hooks e o resto do arquivo ficam intactos. Atalhos sem smoke saem do picker.
 SETTINGS_FILE="$SETTINGS" MODELS_JSON="$MODELS_JSON" \
-ACTIVE_NIM="${ACTIVE_NIM[*]-}" ACTIVE_OC="${ACTIVE_OC[*]-}" python3 <<'PY'
+ACTIVE_NIM="${ACTIVE_NIM[*]-}" ACTIVE_OC="${ACTIVE_OC[*]-}" \
+MASTER_KEY="$MASTER_KEY" CLAUDE_PROXY_PORT="${NH_CLAUDE_PROXY_PORT:-4310}" \
+python3 <<'PY'
 import json, os
 
 spec = json.load(open(os.environ["MODELS_JSON"]))
@@ -582,12 +611,40 @@ for r in rows:
         opts.append(r)
 data["modelPicker"]["options"] = opts
 data["model"] = "nvidia-model"
+# Extensão Cursor/VS Code não passa pelo wrapper: sem isto aponta para
+# api.anthropic.com ou para :4310 morto (ECONNREFUSED).
+port = os.environ.get("CLAUDE_PROXY_PORT") or "4310"
+master = os.environ.get("MASTER_KEY") or ""
+env = data.get("env")
+if not isinstance(env, dict):
+    env = {}
+env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:%s" % port
+if master:
+    env["ANTHROPIC_AUTH_TOKEN"] = master
+env["ANTHROPIC_MODEL"] = "nvidia-model"
+env["ANTHROPIC_SMALL_FAST_MODEL"] = "nvidia-small"
+env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "nvidia-model"
+env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = "nvidia-model"
+env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "nvidia-small"
+env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = os.environ.get("CLAUDE_NVIDIA_CONTEXT_TOKENS") or "200000"
+env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+env["CLAUDE_CODE_SKIP_FAST_MODE_NETWORK_ERRORS"] = "1"
+env.pop("ANTHROPIC_API_KEY", None)
+data["env"] = env
 os.makedirs(os.path.dirname(path), exist_ok=True)
 json.dump(data, open(path, "w"), indent=2, ensure_ascii=False)
 open(path, "a").write("\n")
 print(len(opts))
 PY
 ok "modelPicker em $SETTINGS ($(SETTINGS_FILE="$SETTINGS" python3 -c 'import json,os;print(len(json.load(open(os.environ["SETTINGS_FILE"]))["modelPicker"]["options"]))') opções)"
+
+NH_CLAUDE_CONFIG_DIR="$CONFIG_DIR"
+NH_CLAUDE_VENV_DIR="$VENV_DIR"
+export NH_CLAUDE_CONFIG_DIR NH_CLAUDE_VENV_DIR
+# Recarrega NV_MODEL/LITELLM_MASTER_KEY gravados no env há pouco.
+# shellcheck disable=SC1090
+set +e; source "$ENVF" >/dev/null 2>&1; set -e
+nh_ensure_claude_proxy || aviso "proxy persistente não subiu; use claude-nvidia nesta sessão"
 
 # ------------------------------------------------------------------------ PATH
 case ":$PATH:" in
@@ -643,7 +700,7 @@ fi
 nh_save_shared_env
 
 echo
-ok "instalado. Use: claude-nvidia"
+ok "instalado. Use: claude-nvidia  (ou abra o Claude Code na IDE — proxy em :${NH_CLAUDE_PROXY_PORT:-4310})"
 echo "  modelo principal : $(set +e; source "$ENVF" >/dev/null 2>&1; echo "${NV_MODEL#nvidia_nim/}")  (troque NV_MODEL em $ENVF)"
 echo "  NVIDIA /model    : nvidia-model nvidia-small ${ACTIVE_NIM[*]-}"
 if [ ${#ACTIVE_OC[@]} -gt 0 ]; then
@@ -651,4 +708,5 @@ if [ ${#ACTIVE_OC[@]} -gt 0 ]; then
 else
   echo "  OpenCode /model  : (nenhum — suba o LiteLLM :4000 e rode de novo ./install.sh claude)"
 fi
+echo "  proxy            : nvidia-harness-claude-proxy.service  (${NH_CLAUDE_PROXY_URL:-http://127.0.0.1:4310})"
 echo "  por chamada      : NV_MODEL=nvidia_nim/z-ai/glm-5.3 claude-nvidia"

@@ -61,7 +61,9 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh claude
 claude-nvidia
 ```
 
-Padrão hosted: `nvidia/nemotron-3.5-super-vl-120b-a12b` (`nvidia/nemotron-3-super-120b-a12b` retirou em 2026-10-20 — HTTP 404 *Function not found*). O instalador faz smoke em cada atalho NIM e só registra quem responde 200 com texto.
+Padrão hosted: `nvidia/nemotron-3.5-super-vl-120b-a12b` (`nvidia/nemotron-3-super-120b-a12b` retirou em 2026-10-20 — HTTP 404 *Function not found*). O instalador faz smoke em cada atalho NIM e só registra quem responde 200 com texto. Atalhos que falham o smoke (pago, 404, timeout, ou pool OpenCode com `:4000` morto) saem do `/model`.
+
+O proxy LiteLLM fica em `nvidia-harness-claude-proxy.service` (`http://127.0.0.1:4310`) e o `env` em `~/.claude/settings.json` aponta o Claude Code da IDE para ele. Sem o serviço, a extensão Cursor/VS Code vê `ECONNREFUSED` — o wrapper antigo matava o LiteLLM ao sair.
 
 Troca de modelo: edite `NV_MODEL` em `~/.config/claude-nvidia/env`, ou `NV_MODEL=nvidia_nim/z-ai/glm-5.3 claude-nvidia`, ou `/model` na sessão (`nvidia-model`, `nvidia-nemotron`, `nvidia-glm`, `nvidia-small`, …).
 

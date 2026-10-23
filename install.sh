@@ -158,7 +158,14 @@ self_test() {
   python3 "$NH_ROOT/proxy/nvidia-cursor-proxy.py" --selftest >/dev/null \
     || erro "self-test do proxy Cursor falhou"
 
-  ok "self-test ok (array vazio/unset + proxy Cursor)"
+  bash -n "$NH_ROOT/lib/claude-proxy.sh" || erro "sintaxe de lib/claude-proxy.sh"
+  bash -n "$NH_ROOT/harnesses/claude.sh" || erro "sintaxe de harnesses/claude.sh"
+  grep -q 'nvidia-harness-claude-proxy.service' "$NH_ROOT/lib/claude-proxy.sh" \
+    || erro "self-test: unidade Claude ausente em claude-proxy.sh"
+  grep -q 'ANTHROPIC_BASE_URL' "$NH_ROOT/harnesses/claude.sh" \
+    || erro "self-test: settings.env ANTHROPIC_BASE_URL ausente em claude.sh"
+
+  ok "self-test ok (array vazio/unset + proxy Cursor + Claude persistente)"
   exit 0
 }
 
