@@ -97,6 +97,8 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh opencode --set-default
 opencode
 ```
 
+Padrão: `nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b`. O instalador tira `moonshotai/kimi-k3` (HTTP 410 desde 2026-10-15) e reescreve `agent.agent` / `debug` / `multitask` se ainda apontarem para DeepSeek Flash (timeout hosted ~5 min). Recarregue o OpenCode e abra uma **sessão nova**.
+
 ### VS Code
 
 ```bash

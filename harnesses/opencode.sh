@@ -122,8 +122,8 @@ merged_models = dict(tmpl.get("models") or {})
 if isinstance(existing.get("models"), dict):
     for k, v in existing["models"].items():
         merged_models.setdefault(k, v)
-# Hosted Nemotron 3 Super retirou em 2026-10-20 (404 Function not found).
-for dead in ("nvidia/nemotron-3-super-120b-a12b",):
+# Hosted ids mortos: 3 Super retirou 2026-10-20 (404); Kimi K3 EOL 2026-10-15 (410).
+for dead in ("nvidia/nemotron-3-super-120b-a12b", "moonshotai/kimi-k3"):
     merged_models.pop(dead, None)
 tmpl["models"] = merged_models
 # Preserve unrelated option keys, but always refresh apiKey/baseURL from this run.
@@ -132,13 +132,34 @@ opts.update(tmpl["options"])
 tmpl["options"] = opts
 providers["nvidia"] = tmpl
 
+new_default = f"nvidia/{os.environ['DEFAULT_MODEL']}"
+dead_full = {
+    "nvidia/deepseek-ai/deepseek-v4.1-flash",
+    "nvidia/moonshotai/kimi-k3",
+    "nvidia/nvidia/nemotron-3-super-120b-a12b",
+}
 if os.environ.get("SET_DEFAULT") == "1":
-    data["model"] = f"nvidia/{os.environ['DEFAULT_MODEL']}"
-elif not data.get("model") or str(data.get("model")).endswith("nemotron-3-super-120b-a12b"):
-    data["model"] = f"nvidia/{os.environ['DEFAULT_MODEL']}"
+    data["model"] = new_default
+elif not data.get("model") or str(data.get("model")) in dead_full:
+    data["model"] = new_default
+
+# Agent overrides keep the old model even after data.model muda — isso travou o Desktop
+# (ProviderHeaderTimeoutError 300s no DeepSeek Flash).
+for agent in (data.get("agent") or {}).values():
+    if isinstance(agent, dict) and agent.get("model") in dead_full:
+        agent["model"] = new_default
 
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 os.chmod(path, 0o600)
+
+agents_md = pathlib.Path.home() / ".config/opencode/AGENTS.md"
+if agents_md.is_file():
+    text = agents_md.read_text()
+    old = "- Preferência: **Kimi K3** (`nvidia/moonshotai/kimi-k3`) com NVIDIA NIM, quando disponível."
+    new = "- Preferência: **Nemotron 3.5 Super VL** (`nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b`) com NVIDIA NIM."
+    if old in text:
+        agents_md.write_text(text.replace(old, new, 1))
+
 print("gravado:", path)
 print("modelos nvidia:", len(tmpl["models"]))
 print("model default:", data.get("model"))

@@ -20,13 +20,6 @@
       "temperature": true,
       "limit": { "context": 262144, "output": 8192 }
     },
-    "moonshotai/kimi-k3": {
-      "name": "Kimi K3",
-      "tool_call": true,
-      "reasoning": false,
-      "temperature": true,
-      "limit": { "context": 1000000, "output": 8192 }
-    },
     "openai/gpt-oss-120b": {
       "name": "GPT OSS 120B",
       "tool_call": true,
@@ -42,7 +35,7 @@
       "limit": { "context": 131072, "output": 4096 }
     },
     "deepseek-ai/deepseek-v4.1-flash": {
-      "name": "DeepSeek V4.1 Flash",
+      "name": "DeepSeek V4.1 Flash (hosted timeout — não usar de padrão)",
       "tool_call": true,
       "reasoning": false,
       "temperature": true,

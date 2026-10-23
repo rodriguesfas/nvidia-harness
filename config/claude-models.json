@@ -21,16 +21,6 @@
       "behavesAs": "claude-sonnet-4-6"
     },
     {
-      "model_name": "nvidia-k3",
-      "litellm_model": "nvidia_nim/moonshotai/kimi-k3",
-      "smoke_id": "moonshotai/kimi-k3",
-      "temperature": 0.6,
-      "top_p": 0.95,
-      "label": "NVIDIA Kimi-K3",
-      "description": "moonshotai/kimi-k3 — agentic, 1M de contexto",
-      "behavesAs": "claude-sonnet-4-6"
-    },
-    {
       "model_name": "nvidia-lightning",
       "litellm_model": "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b",
       "smoke_id": "nvidia/nemotron-3.5-lightning-30b-a3b",
