@@ -23,6 +23,7 @@ FORCE_OPEN=0
 # NIM: ids da conta NVIDIA. FREE: pool LiteLLM do OpenCode via proxy :12436.
 # Prefixo no picker: nvidia/… = NIM; opencode/… = pool grátis. Sem prefixo = Cursor nativo.
 CURSOR_NIM_MODELS=(
+  "nvidia/nemotron-3.5-super-vl-120b-a12b"
   "nvidia/nemotron-3-ultra-550b-a55b"
   "nvidia/nemotron-3.5-lightning-30b-a3b"
   "nvidia/openai/gpt-oss-20b"

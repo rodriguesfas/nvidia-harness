@@ -1,0 +1,123 @@
+{
+  "nvidia_aliases": [
+    {
+      "model_name": "nvidia-nemotron",
+      "litellm_model": "nvidia_nim/nvidia/nemotron-3.5-super-vl-120b-a12b",
+      "smoke_id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "label": "NVIDIA Nemotron 3.5 Super VL 120B",
+      "description": "nvidia/nemotron-3.5-super-vl-120b-a12b — hosted NIM",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "nvidia-glm",
+      "litellm_model": "nvidia_nim/z-ai/glm-5.3",
+      "smoke_id": "z-ai/glm-5.3",
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "label": "NVIDIA GLM-5.3",
+      "description": "z-ai/glm-5.3 — coding, 1M de contexto",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "nvidia-k3",
+      "litellm_model": "nvidia_nim/moonshotai/kimi-k3",
+      "smoke_id": "moonshotai/kimi-k3",
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "label": "NVIDIA Kimi-K3",
+      "description": "moonshotai/kimi-k3 — agentic, 1M de contexto",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "nvidia-lightning",
+      "litellm_model": "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b",
+      "smoke_id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "label": "NVIDIA Nemotron 3.5 Lightning 30B",
+      "description": "nvidia/nemotron-3.5-lightning-30b-a3b — hosted NIM",
+      "behavesAs": "claude-haiku-4-5"
+    }
+  ],
+  "opencode_aliases": [
+    {
+      "model_name": "opencode-coder",
+      "smoke_id": "coder",
+      "label": "OpenCode coder",
+      "description": "pool grátis (LiteLLM :4000) — Gemini Flash",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "opencode-fast",
+      "smoke_id": "fast",
+      "label": "OpenCode fast",
+      "description": "pool grátis (LiteLLM :4000) — Gemini Lite",
+      "behavesAs": "claude-haiku-4-5"
+    },
+    {
+      "model_name": "opencode-gemini-flash",
+      "smoke_id": "gemini-flash",
+      "label": "OpenCode gemini-flash",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "opencode-gemini-lite",
+      "smoke_id": "gemini-lite",
+      "label": "OpenCode gemini-lite",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-haiku-4-5"
+    },
+    {
+      "model_name": "opencode-mistral-medium",
+      "smoke_id": "mistral-medium",
+      "label": "OpenCode mistral-medium",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "opencode-mistral-small",
+      "smoke_id": "mistral-small",
+      "label": "OpenCode mistral-small",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-haiku-4-5"
+    },
+    {
+      "model_name": "opencode-codestral",
+      "smoke_id": "codestral",
+      "label": "OpenCode codestral",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "opencode-openrouter-free",
+      "smoke_id": "openrouter-free",
+      "label": "OpenCode openrouter-free",
+      "description": "pool grátis (LiteLLM :4000) — OpenRouter :free",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "opencode-groq-gpt-oss-20b",
+      "smoke_id": "groq-gpt-oss-20b",
+      "label": "OpenCode groq-gpt-oss-20b",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-haiku-4-5"
+    },
+    {
+      "model_name": "opencode-groq-qwen3.8-27b",
+      "smoke_id": "groq-qwen3.8-27b",
+      "label": "OpenCode groq-qwen3.8-27b",
+      "description": "pool grátis (LiteLLM :4000)",
+      "behavesAs": "claude-sonnet-4-6"
+    },
+    {
+      "model_name": "opencode-local-qwen7b",
+      "smoke_id": "local-qwen7b",
+      "label": "OpenCode local-qwen7b",
+      "description": "pool grátis (LiteLLM :4000) — Qwen local",
+      "behavesAs": "claude-haiku-4-5"
+    }
+  ]
+}

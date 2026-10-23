@@ -35,7 +35,7 @@ SKIP_EXT=0
 MODEL_EXPLICIT=0
 DEFAULT_MODEL="z-ai/glm-5.3"
 # Ordem de preferência; todos precisam passar no smoke chat/completions.
-FALLBACK_MODELS=("z-ai/glm-5.3" "nvidia/nemotron-3-ultra-550b-a55b" "openai/gpt-oss-20b")
+FALLBACK_MODELS=("z-ai/glm-5.3" "nvidia/nemotron-3.5-super-vl-120b-a12b" "nvidia/nemotron-3-ultra-550b-a55b" "openai/gpt-oss-20b")
 
 antigravity_running() {
   pgrep -f "/usr/share/antigravity/antigravity" >/dev/null 2>&1 \
