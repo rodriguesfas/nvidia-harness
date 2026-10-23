@@ -4,6 +4,7 @@
 # Requer: common.sh já carregado.
 
 NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
+NH_FREE_ROUTER_URL="${NH_FREE_ROUTER_URL:-http://127.0.0.1:4000}"
 
 # Carrega chave já salva em ~/.config/nvidia-harness/env (se existir).
 nh_load_shared_env() {
@@ -138,12 +139,20 @@ nh_smoke_chat() {
   local model="${1:-openai/gpt-oss-20b}"
   local strict="${NH_SMOKE_STRICT:-1}"
   local body code
+  local max_tokens=8
+  local timeout=45
+  if [ "${NH_SMOKE_REQUIRE_CONTENT:-0}" = 1 ]; then
+    # Modelos com thinking (Nemotron 3.5, GLM, …) gastam o orçamento em
+    # reasoning_content; 8 tokens devolvem HTTP 200 vazio e um falso negativo.
+    max_tokens=128
+    timeout=90
+  fi
   body="$(mktemp)"
-  code="$(curl -sS --max-time 45 -o "$body" -w '%{http_code}' \
+  code="$(curl -sS --max-time "$timeout" -o "$body" -w '%{http_code}' \
     "$NVIDIA_BASE_URL/chat/completions" \
     -H "Authorization: Bearer $NH_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"responda: ok\"}],\"max_tokens\":8}" \
+    -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"responda: ok\"}],\"max_tokens\":$max_tokens}" \
     || true)"
   case "$code" in
     200)
@@ -155,8 +164,9 @@ if d.get("error"):
     raise SystemExit(1)
 msg = ((d.get("choices") or [{}])[0].get("message") or {})
 content = (msg.get("content") or "").strip()
+reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
 tools = msg.get("tool_calls") or []
-raise SystemExit(0 if content or tools else 1)
+raise SystemExit(0 if content or reasoning or tools else 1)
 PY
         then
           aviso "smoke chat: HTTP 200 sem conteúdo útil ($model)"
@@ -208,8 +218,104 @@ nh_diagnose_common() {
   else
     printf '  api key  : (não resolvida)\n'
   fi
+  printf '  free-rtr : %s (%s)\n' "$NH_FREE_ROUTER_URL" "$(nh_free_router_up && echo ativo || echo ausente)"
   for c in curl python3 ss git; do
     if has_cmd "$c"; then printf '  dep %-8s ok (%s)\n' "$c" "$(command -v "$c")"
     else printf '  dep %-8s AUSENTE\n' "$c"; fi
   done
+}
+
+# HTTP "está no ar?" — 2xx/4xx/5xx contam (serviço responde); 000 não.
+nh_http_up() {
+  local url="$1"
+  local code
+  code="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "$url" || true)"
+  case "$code" in
+    200|401|404|405|500) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+nh_free_router_up() {
+  nh_http_up "${NH_FREE_ROUTER_URL%/}/v1/models" \
+    || nh_http_up "${NH_FREE_ROUTER_URL%/}/models" \
+    || nh_http_up "${NH_FREE_ROUTER_URL%/}/"
+}
+
+# Lê KEY= de um env file (aceita `export KEY=`). Não imprime o arquivo inteiro.
+nh_read_env_key() {
+  local file="$1" name="$2"
+  [ -f "$file" ] || return 0
+  python3 - "$file" "$name" <<'PY'
+import sys
+path, name = sys.argv[1], sys.argv[2]
+prefix = name + "="
+try:
+    lines = open(path, encoding="utf-8", errors="replace")
+except OSError:
+    raise SystemExit(0)
+for raw in lines:
+    line = raw.strip()
+    if line.startswith("export "):
+        line = line[7:].strip()
+    if line.startswith(prefix):
+        print(line.split("=", 1)[1].strip().strip('"').strip("'"))
+        break
+PY
+}
+
+# Master key do LiteLLM :4000 (pool OpenCode). NÃO grava em LITELLM_MASTER_KEY —
+# o proxy do Claude Code usa outra chave.
+nh_detect_free_router_key() {
+  local f key
+  if [ -n "${NH_FREE_ROUTER_KEY:-}" ]; then
+    return 0
+  fi
+  for f in \
+    "${NH_FREE_ROUTER_ENV:-}" \
+    "$NH_ENVF" \
+    "$NH_CONFIG_DIR/proxy.env" \
+    "$HOME/.config/opencode-free-router/.env" \
+    "$HOME/.config/nvidia-harness/free-router/.env"
+  do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    key="$(nh_read_env_key "$f" LITELLM_MASTER_KEY || true)"
+    if [ -n "$key" ]; then
+      NH_FREE_ROUTER_KEY="$key"
+      NH_FREE_ROUTER_ENV="$f"
+      export NH_FREE_ROUTER_KEY NH_FREE_ROUTER_ENV
+      return 0
+    fi
+  done
+  if has_cmd systemctl; then
+    f="$(systemctl --user show -p EnvironmentFiles --value free-router.service 2>/dev/null | awk '{print $1}' | head -1 || true)"
+    f="${f#-}"; f="${f%% *}"
+    if [ -n "$f" ] && [ -f "$f" ]; then
+      key="$(nh_read_env_key "$f" LITELLM_MASTER_KEY || true)"
+      if [ -n "$key" ]; then
+        NH_FREE_ROUTER_KEY="$key"
+        NH_FREE_ROUTER_ENV="$f"
+        export NH_FREE_ROUTER_KEY NH_FREE_ROUTER_ENV
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+nh_try_start_free_router() {
+  nh_free_router_up && return 0
+  has_cmd systemctl || return 1
+  systemctl --user is-enabled free-router.service >/dev/null 2>&1 \
+    || systemctl --user list-unit-files free-router.service >/dev/null 2>&1 \
+    || return 1
+  log "tentando subir free-router.service (pool OpenCode)"
+  systemctl --user start free-router.service >/dev/null 2>&1 || return 1
+  local _
+  for _ in 1 2 3 4 5 6 7 8; do
+    nh_free_router_up && return 0
+    sleep 0.5
+  done
+  return 1
 }

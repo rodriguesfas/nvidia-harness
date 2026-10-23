@@ -14,7 +14,7 @@ OC_JSON="${OPENCODE_CONFIG:-$HOME/.config/opencode/opencode.json}"
 PROVIDER_TMPL="$NH_ROOT/config/opencode-provider.json"
 DO_DIAGNOSE=0
 DO_TEST=1
-DEFAULT_MODEL="nvidia/nemotron-3-super-120b-a12b"
+DEFAULT_MODEL="nvidia/nemotron-3.5-super-vl-120b-a12b"
 SET_DEFAULT=0
 
 while [ $# -gt 0 ]; do
@@ -122,6 +122,9 @@ merged_models = dict(tmpl.get("models") or {})
 if isinstance(existing.get("models"), dict):
     for k, v in existing["models"].items():
         merged_models.setdefault(k, v)
+# Hosted Nemotron 3 Super retirou em 2026-10-20 (404 Function not found).
+for dead in ("nvidia/nemotron-3-super-120b-a12b",):
+    merged_models.pop(dead, None)
 tmpl["models"] = merged_models
 # Preserve unrelated option keys, but always refresh apiKey/baseURL from this run.
 opts = dict(existing.get("options") or {})
@@ -131,7 +134,7 @@ providers["nvidia"] = tmpl
 
 if os.environ.get("SET_DEFAULT") == "1":
     data["model"] = f"nvidia/{os.environ['DEFAULT_MODEL']}"
-elif not data.get("model"):
+elif not data.get("model") or str(data.get("model")).endswith("nemotron-3-super-120b-a12b"):
     data["model"] = f"nvidia/{os.environ['DEFAULT_MODEL']}"
 
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")

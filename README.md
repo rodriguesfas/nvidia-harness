@@ -4,7 +4,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 
 | Harness | O que o script faz |
 |---|---|
-| **Claude Code** | Proxy [LiteLLM](https://github.com/BerriAI/litellm) local + wrapper `claude-nvidia` |
+| **Claude Code** | Proxy [LiteLLM](https://github.com/BerriAI/litellm) local + wrapper `claude-nvidia` (NIM + pool OpenCode se `:4000`) |
 | **Cursor** | Instala o proxy local (`:12436`), grava Base URL + chave + **só** modelos com smoke 200 (NIM e, se o LiteLLM `:4000` estiver no ar, `coder`/`fast`/…). Feche o Cursor antes. |
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
@@ -61,7 +61,11 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh claude
 claude-nvidia
 ```
 
-Troca de modelo: edite `NV_MODEL` em `~/.config/claude-nvidia/env`, ou `NV_MODEL=nvidia_nim/z-ai/glm-5.3 claude-nvidia`, ou `/model` na sessão.
+Padrão hosted: `nvidia/nemotron-3.5-super-vl-120b-a12b` (`nvidia/nemotron-3-super-120b-a12b` retirou em 2026-10-20 — HTTP 404 *Function not found*). O instalador faz smoke em cada atalho NIM e só registra quem responde 200 com texto.
+
+Troca de modelo: edite `NV_MODEL` em `~/.config/claude-nvidia/env`, ou `NV_MODEL=nvidia_nim/z-ai/glm-5.3 claude-nvidia`, ou `/model` na sessão (`nvidia-model`, `nvidia-nemotron`, `nvidia-glm`, `nvidia-small`, …).
+
+Pool grátis do OpenCode (`opencode-coder`, `opencode-fast`, …) entra no mesmo `/model` se o LiteLLM em `:4000` estiver no ar na hora do `./install.sh claude`. Sem o free-router, o Claude Code fica só com a NIM; suba o `:4000` e rode o harness de novo.
 
 ### Cursor
 
@@ -130,7 +134,7 @@ O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script ins
 ```text
 install.sh              # entrada (menu / CLI)
 lib/common.sh           # log, backup, confirm
-lib/nvidia.sh           # chave compartilhada + /models + validação via chat
+lib/nvidia.sh           # chave compartilhada + /models + validação via chat + free-router
 lib/cursor-proxy.sh     # instala/sobe o shim :12436
 proxy/nvidia-cursor-proxy.py
 harnesses/claude.sh
@@ -139,6 +143,7 @@ harnesses/opencode.sh
 harnesses/vscode.sh
 harnesses/antigravity.sh
 config/models.default.txt
+config/claude-models.json
 config/opencode-provider.json
 docs/TROUBLESHOOTING.md
 ```
@@ -156,7 +161,7 @@ docs/TROUBLESHOOTING.md
 
 - Cursor: o Agent exige o proxy local (`:12436`) para flatten Harmony. Pool OpenCode (`coder`/`fast`) só entra com LiteLLM em `:4000`. A IDE tem de estar **fechada** para gravar o `state.vscdb` (backup só da linha alterada — o banco pode ter dezenas de GB).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
-- Claude Code: depende do proxy LiteLLM local (portas `4310–4313`).
+- Claude Code: depende do proxy LiteLLM local (portas `4310–4313`). Pool OpenCode só entra com LiteLLM em `:4000`.
 - Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).
 - `GET /v1/models` da NVIDIA responde sem autenticar; a prova da chave é via `chat/completions` (pule só com `--no-test`).
 - Créditos gratuitos da NVIDIA expiram; rate limit da conta free é baixo.

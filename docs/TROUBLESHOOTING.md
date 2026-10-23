@@ -18,6 +18,14 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
 - Atualize `~/.config/nvidia-harness/env` (ou rode de novo com `NVIDIA_NIM_API_KEY=…`).
 - No Claude Code, a chave também vive em `~/.config/claude-nvidia/env`.
 
+## Claude / NVIDIA: HTTP 404 `Function … Not found for account`
+
+O catálogo `GET /v1/models` ainda lista ids cujo endpoint hosted já saiu. Em 2026-10-20 a NVIDIA retirou `nvidia/nemotron-3-super-120b-a12b`; o substituto é `nvidia/nemotron-3.5-super-vl-120b-a12b`. `./install.sh claude` (e o OpenCode) migram o padrão antigo e só registram atalhos com smoke 200.
+
+## Claude: pool OpenCode não aparece em `/model`
+
+Os ids `opencode-coder` / `opencode-fast` / … só entram se o LiteLLM do free-router (`http://127.0.0.1:4000`) estiver no ar **na hora** de `./install.sh claude`. Diagnóstico: `./install.sh claude --diagnose` (linha `free-rtr` e `opencode`). Suba o `:4000` e rode o harness de novo.
+
 ## Claude: fica em “Iniciando proxy…”
 
 - Atualize/reinstale com `./install.sh claude`.

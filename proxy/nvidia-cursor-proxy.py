@@ -331,6 +331,9 @@ def _selftest() -> None:
     assert canonical_nim_model("nvidia/nemotron-3-ultra-550b-a55b") == (
         "nvidia/nemotron-3-ultra-550b-a55b"
     )
+    assert canonical_nim_model("nvidia/nemotron-3.5-super-vl-120b-a12b") == (
+        "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    )
     merged = merge_model_lists(
         {"data": [{"id": "nvidia/nemotron-3-ultra-550b-a55b"}]},
         {"data": [{"id": "coder"}]},
