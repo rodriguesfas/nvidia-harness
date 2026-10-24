@@ -1,10 +1,19 @@
 # Modelos recomendados (ids exatos da API NVIDIA NIM).
 # Só entram aqui modelos com smoke chat/completions 200 nesta conta —
 # o catálogo /models lista ids que retornam 404 (sem função provisionada)
-# ou 410 (end-of-life). Última verificação: 2026-10-23.
+# ou 410 (end-of-life). Última verificação: 2026-10-24 (também tool-call).
 z-ai/glm-5.3
 nvidia/nemotron-3.5-super-vl-120b-a12b
+nvidia/nemotron-3-ultra-550b-a55b
 nvidia/nemotron-3.5-lightning-30b-a3b
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 openai/gpt-oss-20b
+meta/muse-glimmer-30b
+meta/llama-3.2-11b-vision-instruct
 # Retirado 2026-10-20: nvidia/nemotron-3-super-120b-a12b (HTTP 404 Function not found).
 # Substituição oficial: nvidia/nemotron-3.5-super-vl-120b-a12b.
+# 404 nesta conta (2026-10-24): gemma-3-4b/12b-it, mistral-7b-instruct-v0.3,
+# moonshotai/kimi-k2.6, cosmos-reason2-8b, llama-3.1-nemotron-70b-instruct,
+# llama-3.1-nemotron-ultra-253b-v1.
+# 504/timeout: deepseek-ai/deepseek-v4.1-flash, z-ai/glm-5.3-flash,
+# stepfun-ai/step-5-preview, poolside/laguna-xs-2.1, llama-3.2-90b-vision-instruct.

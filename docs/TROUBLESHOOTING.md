@@ -89,6 +89,15 @@ Esperado. **Status (2026-10-21): aguardando BYOK nativo liberado pela Google.** 
 - Modelo listado em `/models` pode retornar 404 (sem função na conta) ou 410 (end-of-life) — o script só escolhe modelo com smoke 200.
 - `agy` só aceita endpoint Gemini (`GOOGLE_GEMINI_BASE_URL` + `GEMINI_API_KEY`); não use a URL NIM aí.
 
+## DeepSeek Harness: picker cheio de modelos que 404 / 504
+
+O catálogo pi-ai do [dsh](https://github.com/deepseek-ai/deepseek-harness) anuncia ids hosted sem função nesta conta (Gemma 3, Kimi K2.6, Llama 3.1 Nemotron 70B/253B, …) ou que timeoutam (~90 s: DeepSeek V4.1 Flash, GLM-5.3-Flash). `./install.sh deepseek` prova `chat/completions` e deixa só quem devolve texto/reasoning. Padrão: `nvidia/nemotron-3.5-super-vl-120b-a12b`.
+
+- Diagnóstico: `./install.sh deepseek --diagnose` (linhas `patch` / `default` / `picker` / `cred NV`).
+- A chave vive em `~/.dsh/.credentials.yaml` (`NVIDIA_API_KEY`), não no `cordis.patch.yml`. O store do dsh ganha do `NVIDIA_API_KEY` de ambiente.
+- Sessão antiga com `moonshotai/kimi-k3` (410 desde 2026-10-15) não muda sozinha — abra uma sessão nova.
+- HMR do dsh neste host costuma falhar com `EMFILE`; depois de gravar, reabra a janela (dock / `deepseek-harness`).
+
 ## Smoke test lento / timeout
 
 O endpoint hosted da NVIDIA às vezes demora. **`GET /v1/models` não autentica de fato** — a chave só é comprovada em `chat/completions` (isso roda por padrão). Timeout no chat vira aviso; **401/403 abortam**. Pule a prova da chave com `--no-test` (não recomendado).

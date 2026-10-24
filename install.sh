@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nvidia-harness — instalador unificado de modelos NVIDIA NIM para
-# Claude Code, Cursor, OpenCode, VS Code e Antigravity.
+# Claude Code, Cursor, OpenCode, VS Code, Antigravity e DeepSeek Harness.
 #
 #   ./install.sh                       # menu interativo
 #   ./install.sh <harness> [flags…]    # direto
@@ -23,7 +23,7 @@ source "$NH_ROOT/lib/common.sh"
 # shellcheck source=lib/nvidia.sh
 source "$NH_ROOT/lib/nvidia.sh"
 
-HARNESSES=(claude cursor opencode vscode antigravity)
+HARNESSES=(claude cursor opencode vscode antigravity deepseek)
 
 usage() {
   cat <<EOF
@@ -31,7 +31,7 @@ nvidia-harness — configura modelos NVIDIA NIM nos harnesses de desenvolvimento
 
 Uso:
   ./install.sh                       menu interativo
-  ./install.sh claude|cursor|opencode|vscode|antigravity [flags do harness]
+  ./install.sh claude|cursor|opencode|vscode|antigravity|deepseek [flags do harness]
   ./install.sh all [--yes] [--no-test]
   ./install.sh diagnose
   ./install.sh --self-test
@@ -48,6 +48,7 @@ Exemplos:
   NVIDIA_NIM_API_KEY=nvapi-… ./install.sh claude
   ./install.sh cursor --diagnose
   ./install.sh antigravity --yes
+  ./install.sh deepseek --yes
   ./install.sh all --yes --no-test
 
 Docs: $NH_ROOT/README.md
@@ -80,8 +81,9 @@ while [ $# -gt 0 ]; do
     --diagnose) MODE_DIAGNOSE=1; shift ;;
     diagnose) MODE_DIAGNOSE=1; shift ;;
     all) MODE_ALL=1; shift ;;
-    claude|cursor|opencode|vscode|antigravity)
+    claude|cursor|opencode|vscode|antigravity|deepseek|dsh)
       TARGET="$1"
+      if [ "$TARGET" = "dsh" ]; then TARGET=deepseek; fi
       shift
       # "$@" vazio é seguro; o array FORWARD_ARGS é que não era.
       while [ $# -gt 0 ]; do
@@ -160,18 +162,23 @@ self_test() {
 
   bash -n "$NH_ROOT/lib/claude-proxy.sh" || erro "sintaxe de lib/claude-proxy.sh"
   bash -n "$NH_ROOT/harnesses/claude.sh" || erro "sintaxe de harnesses/claude.sh"
+  bash -n "$NH_ROOT/harnesses/deepseek.sh" || erro "sintaxe de harnesses/deepseek.sh"
   grep -q 'nvidia-harness-claude-proxy.service' "$NH_ROOT/lib/claude-proxy.sh" \
     || erro "self-test: unidade Claude ausente em claude-proxy.sh"
   grep -q 'ANTHROPIC_BASE_URL' "$NH_ROOT/harnesses/claude.sh" \
     || erro "self-test: settings.env ANTHROPIC_BASE_URL ausente em claude.sh"
+  grep -q 'cordis.patch.yml' "$NH_ROOT/harnesses/deepseek.sh" \
+    || erro "self-test: cordis.patch.yml ausente em deepseek.sh"
+  python3 "$NH_ROOT/lib/dsh-patch.py" --selftest >/dev/null \
+    || erro "self-test de lib/dsh-patch.py falhou"
 
-  ok "self-test ok (array vazio/unset + proxy Cursor + Claude persistente)"
+  ok "self-test ok (array vazio/unset + proxy Cursor + Claude persistente + dsh)"
   exit 0
 }
 
 menu() {
   if [ ! -t 0 ]; then
-    erro "sem TTY — informe o harness: ./install.sh claude|cursor|opencode|vscode|antigravity|all|diagnose"
+    erro "sem TTY — informe o harness: ./install.sh claude|cursor|opencode|vscode|antigravity|deepseek|all|diagnose"
   fi
   local choice
   while :; do
@@ -182,8 +189,9 @@ menu() {
     echo "  3) OpenCode     (provider nvidia no opencode.json)"
     echo "  4) VS Code      (extensão NIM Provider + Copilot Chat)"
     echo "  5) Antigravity  (Cline OpenAI Compatible → NIM)"
-    echo "  6) Todos"
-    echo "  7) Diagnóstico"
+    echo "  6) DeepSeek     (dsh web → cordis.patch.yml, só smoke 200)"
+    echo "  7) Todos"
+    echo "  8) Diagnóstico"
     echo "  0) Sair"
     printf 'Opção: '
     IFS= read -r choice || true
@@ -195,10 +203,11 @@ menu() {
       3|opencode) TARGET=opencode; return 0 ;;
       4|vscode|vs|code) TARGET=vscode; return 0 ;;
       5|antigravity|agy) TARGET=antigravity; return 0 ;;
-      6|all|todos) MODE_ALL=1; return 0 ;;
-      7|diagnose|diagnostico|diagnóstico) MODE_DIAGNOSE=1; return 0 ;;
+      6|deepseek|dsh) TARGET=deepseek; return 0 ;;
+      7|all|todos) MODE_ALL=1; return 0 ;;
+      8|diagnose|diagnostico|diagnóstico) MODE_DIAGNOSE=1; return 0 ;;
       0|q|sair|exit) exit 0 ;;
-      *) aviso "opção inválida — tente 0-7" ;;
+      *) aviso "opção inválida — tente 0-8" ;;
     esac
   done
 }

@@ -9,6 +9,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
 | **Antigravity** | Instala o [Cline](https://docs.cline.bot/) e **grava** OpenAI Compatible → NIM (provider/baseUrl/modelo no `state.vscdb` + chave no SecretStorage) |
+| **DeepSeek Harness** | Smoke NIM e grava o provider `nvidia` em `~/.dsh/profiles/web/cordis.patch.yml` (só ids 200) + chave em `~/.dsh/.credentials.yaml` |
 
 Um único ponto de entrada, módulos por harness, chave compartilhada em `~/.config/nvidia-harness/env` (permissão `600`). **Nunca** versionamos tokens.
 
@@ -22,6 +23,7 @@ Um único ponto de entrada, módulos por harness, chave compartilhada em `~/.con
   - OpenCode: [OpenCode](https://opencode.ai/) no `PATH`
   - VS Code: [VS Code](https://code.visualstudio.com/) + [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) (hospedeiro do picker)
   - Antigravity: [Antigravity](https://antigravity.google/) instalado (`antigravity` no `PATH`)
+  - DeepSeek Harness: [`dsh`](https://github.com/deepseek-ai/deepseek-harness) já executado uma vez (`~/.dsh/profiles/web/` existe)
 
 ## Instalação rápida
 
@@ -40,6 +42,7 @@ NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh cursor
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh opencode
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh vscode
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh antigravity
+NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh deepseek
 NVIDIA_NIM_API_KEY=nvapi-SEU_TOKEN ./install.sh all --yes
 ```
 
@@ -119,6 +122,16 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh antigravity
 
 O agente Cascade nativo **não** aceita Base URL OpenAI-compatible. O script instala o [Cline](https://docs.cline.bot/), escolhe um modelo que **responde** nesta conta (smoke `chat/completions`; padrão `z-ai/glm-5.3`) e grava a configuração: provider **OpenAI Compatible**, Base URL `https://integrate.api.nvidia.com/v1`, modelo e chave (SecretStorage da IDE). **Feche o Antigravity antes de rodar** — a IDE sobrescreve o `state.vscdb` ao sair. O CLI `agy` só fala protocolo Gemini (`GOOGLE_GEMINI_BASE_URL`), não a API NIM.
 
+### DeepSeek Harness
+
+```bash
+NVIDIA_NIM_API_KEY=nvapi-… ./install.sh deepseek --yes
+```
+
+O [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh web`) carrega o catálogo pi-ai da [NVIDIA NIM](https://build.nvidia.com) (~21 ids). Vários 404 (*Function not found*) ou 504 (hosted timeout — `deepseek-ai/deepseek-v4.1-flash`, `z-ai/glm-5.3-flash`). O instalador prova `chat/completions` **com conteúdo** e substitui `providers.nvidia` em `~/.dsh/profiles/web/cordis.patch.yml` só pelos que respondem; o padrão é `nvidia/nemotron-3.5-super-vl-120b-a12b`. A chave vai para `~/.dsh/.credentials.yaml` (`refs.NVIDIA_API_KEY`, permissão `600`) — o YAML só cita `apiKeyEnv`. `local-coder` e o resto do patch ficam. Reabra o dsh (HMR local costuma cair com EMFILE); sessão **nova**, não uma com `moonshotai/kimi-k3`.
+
+Candidatos (smoke 2026-10-24): Nemotron 3.5 Super VL / Ultra 550B / Lightning 30B / Nano Omni, GLM-5.3, GPT OSS 20B, Muse Glimmer 30B, Llama 3.2 11B Vision. Quem falhar o smoke nesta conta sai do picker.
+
 ## Diagnóstico
 
 ```bash
@@ -146,7 +159,10 @@ harnesses/cursor.sh
 harnesses/opencode.sh
 harnesses/vscode.sh
 harnesses/antigravity.sh
+harnesses/deepseek.sh
+lib/dsh-patch.py
 config/models.default.txt
+config/dsh-models.json
 config/claude-models.json
 config/opencode-provider.json
 docs/TROUBLESHOOTING.md
@@ -160,6 +176,7 @@ docs/TROUBLESHOOTING.md
 | [Gist Cursor](https://gist.github.com/rodriguesfas/c45aeccb42cd0ceb5d900b11198d80cb) | Absorvido em `harnesses/cursor.sh` |
 | OpenCode / VS Code | Não havia repo — cobertos aqui |
 | Antigravity | Coberto via Cline (Cascade nativo sem BYOK OpenAI) |
+| DeepSeek Harness | Coberto (`./install.sh deepseek`) — picker só com smoke 200 |
 
 ## Limitações
 
@@ -167,6 +184,7 @@ docs/TROUBLESHOOTING.md
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`). Pool OpenCode só entra com LiteLLM em `:4000`.
 - Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).
+- DeepSeek Harness: o catálogo pi-ai lista ids mortos; o harness restringe o picker. Credencial do dsh ganha do ambiente. Recarregar a janela depois de gravar (HMR EMFILE).
 - `GET /v1/models` da NVIDIA responde sem autenticar; a prova da chave é via `chat/completions` (pule só com `--no-test`).
 - Créditos gratuitos da NVIDIA expiram; rate limit da conta free é baixo.
 
