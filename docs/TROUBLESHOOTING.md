@@ -26,11 +26,23 @@ O catálogo `GET /v1/models` ainda lista ids cujo endpoint hosted já saiu. Em 2
 
 Os ids `opencode-coder` / `opencode-fast` / … só entram se o LiteLLM do free-router (`http://127.0.0.1:4000`) estiver no ar **na hora** de `./install.sh claude`. Diagnóstico: `./install.sh claude --diagnose` (linha `free-rtr` e `opencode`). Suba o `:4000` e rode o harness de novo.
 
+## Claude: `Connection refused` (ECONNREFUSED) · attempt N/10
+
+O Claude Code está a falar com `ANTHROPIC_BASE_URL=http://127.0.0.1:4310` e **nada escuta** nessa porta. Não é firewall: o wrapper antigo subia o LiteLLM, lançava o `claude` e **matava o proxy ao sair**. A extensão no Cursor/VS Code (e um `claude` aberto depois) ficava a retentar uma porta morta.
+
+- `./install.sh claude` instala `nvidia-harness-claude-proxy.service`, grava `env` em `~/.claude/settings.json` e só deixa no `/model` atalhos com smoke 200.
+- Diagnóstico: `./install.sh claude --diagnose` (linhas `proxy` / `unit` / `base URL`).
+- `systemctl --user status nvidia-harness-claude-proxy` e `curl -sS --max-time 2 http://127.0.0.1:4310/health/liveliness`.
+- Abra uma sessão **nova** do Claude Code depois de reinstalar (a sessão antiga guarda o `ANTHROPIC_BASE_URL` morto).
+
+O modo interativo também tenta `api.anthropic.com` no arranque. O harness grava `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` para esse tráfego não furar o proxy.
+
 ## Claude: fica em “Iniciando proxy…”
 
 - Atualize/reinstale com `./install.sh claude`.
 - Veja `~/.config/claude-nvidia/litellm-*.log`.
 - Processo travado (Ctrl+Z): `ps -eo pid,stat,args | grep litellm` e `kill -9 <pid>`.
+- Se o systemd estiver activo, `systemctl --user restart nvidia-harness-claude-proxy`.
 
 ## Cursor: Verify falha / Agent 400 Pydantic
 
@@ -54,6 +66,12 @@ O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o
 - Reinicie o OpenCode após gravar.
 - Permissão do arquivo deve ser `600`.
 
+## OpenCode: UI trava / `ProviderHeaderTimeoutError` 300000ms
+
+O Desktop não crasha: o modelo da sessão não devolve header. `deepseek-ai/deepseek-v4.1-flash` hosted timeouta ~5 min (6 retries). `moonshotai/kimi-k3` é 410 desde 2026-10-15. `./install.sh opencode --set-default` aponta o default e os agentes `agent`/`debug`/`multitask` para `nvidia/nemotron-3.5-super-vl-120b-a12b` e remove o K3 da lista. Sessão antiga guarda o modelo morto — abra uma sessão nova.
+
+Pool grátis do OpenCode (`flint-40b-free`, `beam-free`) também cai (`Endpoint is unavailable` / `permissions` não suportado). Não uses como fallback do DeepSeek.
+
 ## VS Code: modelos NIM não listam
 
 - Extensão `hidenobunagai.nvidia-nim-provider` instalada?
@@ -70,6 +88,15 @@ Esperado. **Status (2026-10-21): aguardando BYOK nativo liberado pela Google.** 
 - `state.vscdb` editado com a IDE aberta é perdido: ela mantém o estado em memória e regrava ao sair.
 - Modelo listado em `/models` pode retornar 404 (sem função na conta) ou 410 (end-of-life) — o script só escolhe modelo com smoke 200.
 - `agy` só aceita endpoint Gemini (`GOOGLE_GEMINI_BASE_URL` + `GEMINI_API_KEY`); não use a URL NIM aí.
+
+## DeepSeek Harness: picker cheio de modelos que 404 / 504
+
+O catálogo pi-ai do [dsh](https://github.com/deepseek-ai/deepseek-harness) anuncia ids hosted sem função nesta conta (Gemma 3, Kimi K2.6, Llama 3.1 Nemotron 70B/253B, …) ou que timeoutam (~90 s: DeepSeek V4.1 Flash, GLM-5.3-Flash). `./install.sh deepseek` prova `chat/completions` e deixa só quem devolve texto/reasoning. Padrão: `nvidia/nemotron-3.5-super-vl-120b-a12b`.
+
+- Diagnóstico: `./install.sh deepseek --diagnose` (linhas `patch` / `default` / `picker` / `cred NV`).
+- A chave vive em `~/.dsh/.credentials.yaml` (`NVIDIA_API_KEY`), não no `cordis.patch.yml`. O store do dsh ganha do `NVIDIA_API_KEY` de ambiente.
+- Sessão antiga com `moonshotai/kimi-k3` (410 desde 2026-10-15) não muda sozinha — abra uma sessão nova.
+- HMR do dsh neste host costuma falhar com `EMFILE`; depois de gravar, reabra a janela (dock / `deepseek-harness`).
 
 ## Smoke test lento / timeout
 
