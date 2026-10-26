@@ -396,9 +396,11 @@ class Handler(BaseHTTPRequestHandler):
         path: str,
         body: bytes | None,
         *,
-        base: str = UPSTREAM,
+        base: str | None = None,
         auth: str | None = None,
     ) -> None:
+        # UPSTREAM/FREE_ROUTER no momento da chamada (self-test troca os globais).
+        base = (base or UPSTREAM).rstrip("/")
         url = base + path
         headers = self._forward_headers()
         if body is not None:
@@ -493,9 +495,137 @@ class Handler(BaseHTTPRequestHandler):
     do_DELETE = do_GET
 
 
+def _http_selftest() -> None:
+    """Sobe o shim e dois upstreams mock numa porta efémera. Sem rede NVIDIA."""
+    import threading
+    import time
+
+    nvidia_posts: list[dict] = []
+    free_posts: list[dict] = []
+    nvidia_gets: list[str] = []
+
+    class _Mock(BaseHTTPRequestHandler):
+        bucket: list
+        gets: list
+
+        def log_message(self, *_args):
+            return
+
+        def do_GET(self):
+            self.gets.append(self.path)
+            data = json.dumps(
+                {"object": "list", "data": [{"id": "openai/gpt-oss-20b"}]}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            self.bucket.append(json.loads(raw.decode("utf-8") or "{}"))
+            data = json.dumps(
+                {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    def _spawn(bucket: list, gets: list) -> ThreadingHTTPServer:
+        class Bound(_Mock):
+            pass
+
+        Bound.bucket = bucket
+        Bound.gets = gets
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Bound)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        return httpd
+
+    nvidia = _spawn(nvidia_posts, nvidia_gets)
+    free = _spawn(free_posts, [])
+    nvidia_url = f"http://127.0.0.1:{nvidia.server_address[1]}"
+    free_url = f"http://127.0.0.1:{free.server_address[1]}"
+
+    global UPSTREAM, FREE_ROUTER
+    old_up, old_free = UPSTREAM, FREE_ROUTER
+    old_log = Handler.log_message
+    UPSTREAM, FREE_ROUTER = nvidia_url, free_url
+    Handler.log_message = lambda *_a, **_k: None  # noqa: ARG005 — silêncio no teste
+    proxy = None
+    try:
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=proxy.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{proxy.server_address[1]}"
+        time.sleep(0.05)
+
+        started = time.monotonic()
+        for path in ("/health", "/v1/health", "/healthz"):
+            with urllib.request.urlopen(base + path, timeout=2) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            assert resp.status == 200
+            assert payload.get("ok") is True
+            assert payload.get("upstream") == nvidia_url
+        assert time.monotonic() - started < 1.0
+        assert nvidia_gets == [], "GET /health não pode falar com a NVIDIA"
+
+        harmony = {
+            "model": "nvidia/openai/gpt-oss-20b",
+            "max_tokens": 8,
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+            ],
+        }
+        req = urllib.request.Request(
+            base + "/v1/chat/completions",
+            data=json.dumps(harmony).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            out = json.loads(resp.read().decode("utf-8"))
+        assert out["choices"][0]["message"]["content"] == "ok"
+        assert nvidia_posts, "mock NIM não recebeu POST"
+        assert nvidia_posts[0]["model"] == "openai/gpt-oss-20b"
+        assert nvidia_posts[0]["messages"][0]["content"] == "hi"
+        assert free_posts == []
+
+        free_body = {
+            "model": "opencode/fast",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "yo"}]}
+            ],
+        }
+        req = urllib.request.Request(
+            base + "/v1/chat/completions",
+            data=json.dumps(free_body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            json.loads(resp.read().decode("utf-8"))
+        assert free_posts, "mock free-router não recebeu POST"
+        assert free_posts[0]["model"] == "fast"
+        assert free_posts[0]["messages"][0]["content"] == "yo"
+        assert len(nvidia_posts) == 1
+    finally:
+        UPSTREAM, FREE_ROUTER = old_up, old_free
+        Handler.log_message = old_log
+        for srv in (proxy, nvidia, free):
+            if srv is None:
+                continue
+            srv.shutdown()
+            srv.server_close()
+    print("http selftest ok")
+
+
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         _selftest()
+        _http_selftest()
         sys.exit(0)
     httpd = ThreadingHTTPServer(LISTEN, Handler)
     print(

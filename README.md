@@ -135,6 +135,7 @@ Candidatos (smoke 2026-10-24): Nemotron 3.5 Super VL / Ultra 550B / Lightning 30
 ## Diagnóstico
 
 ```bash
+./install.sh --self-test          # offline: flatten Harmony + HTTP mock (/health, NIM, opencode/fast)
 ./install.sh diagnose
 ./install.sh cursor --diagnose
 ```

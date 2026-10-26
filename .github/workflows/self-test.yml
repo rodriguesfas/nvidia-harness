@@ -1,0 +1,17 @@
+name: self-test
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install.sh --self-test
+        run: bash ./install.sh --self-test
