@@ -175,6 +175,10 @@ self_test() {
     || erro "self-test: aposentadoria da unidade legado ausente em cursor-proxy.sh"
   grep -q '/health' "$NH_ROOT/proxy/nvidia-cursor-proxy.py" \
     || erro "self-test: /health ausente no proxy Cursor"
+  python3 -m py_compile "$NH_ROOT/proxy/cursor-byok-apply.py" \
+    || erro "self-test: cursor-byok-apply.py inválido"
+  grep -q 'nvidia-harness-cursor-byok.timer' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: timer BYOK ausente em cursor-proxy.sh"
   grep -q 'ANTHROPIC_BASE_URL' "$NH_ROOT/harnesses/claude.sh" \
     || erro "self-test: settings.env ANTHROPIC_BASE_URL ausente em claude.sh"
   grep -q 'cordis.patch.yml' "$NH_ROOT/harnesses/deepseek.sh" \

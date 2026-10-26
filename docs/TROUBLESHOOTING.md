@@ -66,7 +66,7 @@ O shim tem de ser a unidade **nova** `nvidia-harness-cursor-proxy.service`, não
 
 ## Cursor: configuração some / modelos NVIDIA não respondem
 
-- **Feche o Cursor** e rode `./install.sh cursor --yes`. Aberto, a IDE reverte o `state.vscdb` ao sair.
+- **Feche o Cursor** e rode `./install.sh cursor --yes`. Aberto, a IDE reverte o `state.vscdb` ao sair. O timer `nvidia-harness-cursor-byok` grava Base URL + chave + modelos validados quando a IDE não está a correr, para a próxima abertura já ir ao proxy (`http://127.0.0.1:12436/v1`).
 - O script instala o proxy, prova `chat/completions` e grava só quem respondeu 200 **com texto**. Pool OpenCode (`coder`, `fast`, …) só entra se o LiteLLM `:4000` estiver no ar.
 - Estar em `GET /v1/models` **não** significa que o modelo responde (404 “Function not found for account”, timeout, vazio).
 - Backup: `~/.config/nvidia-harness/backups/cursor-state-<timestamp>.json` (só a linha `applicationUser` — nunca copie o `state.vscdb` inteiro).

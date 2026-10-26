@@ -241,6 +241,67 @@ nh_start_cursor_proxy_bg() {
   echo $! > "$pidf"
 }
 
+NH_BYOK_JSON="${NH_BYOK_JSON:-$NH_CONFIG_DIR/cursor-byok.json}"
+NH_BYOK_BIN="${NH_BYOK_BIN:-$NH_CONFIG_DIR/bin/cursor-byok-apply.py}"
+NH_BYOK_SRC="${NH_BYOK_SRC:-$NH_ROOT/proxy/cursor-byok-apply.py}"
+NH_BYOK_UNIT_NAME="nvidia-harness-cursor-byok.service"
+NH_BYOK_TIMER_NAME="nvidia-harness-cursor-byok.timer"
+NH_BYOK_UNIT="${NH_BYOK_UNIT:-$HOME/.config/systemd/user/$NH_BYOK_UNIT_NAME}"
+NH_BYOK_TIMER="${NH_BYOK_TIMER:-$HOME/.config/systemd/user/$NH_BYOK_TIMER_NAME}"
+
+nh_write_cursor_byok_json() {
+  local models="${1:-}"
+  ensure_dir "$NH_CONFIG_DIR"
+  umask 077
+  CURSOR_PROXY_URL="$CURSOR_PROXY_URL" NH_BYOK_JSON="$NH_BYOK_JSON" \
+  CURSOR_MODELS_JOINED="$models" python3 <<'PY'
+import json, os, pathlib
+p = pathlib.Path(os.environ["NH_BYOK_JSON"])
+models = os.environ.get("CURSOR_MODELS_JOINED", "").split()
+p.write_text(json.dumps({
+    "openAIBaseUrl": os.environ["CURSOR_PROXY_URL"],
+    "useOpenAIKey": True,
+    "userAddedModels": models,
+}, indent=2, ensure_ascii=False) + "\n")
+p.chmod(0o600)
+print("byok json:", p)
+PY
+}
+
+nh_install_cursor_byok_timer() {
+  [ -f "$NH_BYOK_SRC" ] || return 0
+  ensure_dir "$(dirname "$NH_BYOK_BIN")"
+  cp -a "$NH_BYOK_SRC" "$NH_BYOK_BIN"
+  chmod 755 "$NH_BYOK_BIN"
+  ensure_dir "$(dirname "$NH_BYOK_UNIT")"
+  cat > "$NH_BYOK_UNIT" <<EOF
+[Unit]
+Description=nvidia-harness apply Cursor BYOK when the IDE is idle
+After=nvidia-harness-cursor-proxy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $NH_BYOK_BIN
+EnvironmentFile=-$NH_PROXY_ENVF
+EOF
+  cat > "$NH_BYOK_TIMER" <<EOF
+[Unit]
+Description=nvidia-harness Cursor BYOK idle apply
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=20
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target
+EOF
+  has_cmd systemctl || return 0
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user enable --now "$NH_BYOK_TIMER_NAME" >/dev/null 2>&1 || true
+  ok "timer BYOK: aplica o proxy quando o Cursor não está aberto"
+}
+
 nh_ensure_cursor_proxy() {
   nh_detect_free_router_env
   nh_try_start_free_router || true
