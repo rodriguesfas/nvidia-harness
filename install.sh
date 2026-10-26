@@ -157,7 +157,7 @@ self_test() {
   out="$(run_harness_fwd cursor --diagnose)"
   [ "$out" = "run name=cursor argc=2" ] || erro "self-test fwd FORWARD_ARGS unset: got '$out'"
 
-  python3 "$NH_ROOT/proxy/nvidia-cursor-proxy.py" --selftest >/dev/null \
+  python3 "$NH_ROOT/proxy/nvidia-cursor-proxy.py" --selftest \
     || erro "self-test do proxy Cursor falhou"
 
   bash -n "$NH_ROOT/lib/claude-proxy.sh" || erro "sintaxe de lib/claude-proxy.sh"
@@ -182,7 +182,7 @@ self_test() {
   python3 "$NH_ROOT/lib/dsh-patch.py" --selftest >/dev/null \
     || erro "self-test de lib/dsh-patch.py falhou"
 
-  ok "self-test ok (array vazio/unset + proxy Cursor + Claude persistente + dsh)"
+  ok "self-test ok (array vazio/unset + proxy HTTP mock + Claude persistente + dsh)"
   exit 0
 }
 
