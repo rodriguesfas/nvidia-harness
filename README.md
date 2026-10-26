@@ -78,7 +78,7 @@ Pool grátis do OpenCode (`opencode-coder`, `opencode-fast`, …) entra no mesmo
 NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
 ```
 
-**Feche o Cursor, rode o comando, abra de novo.** Nada para colar na UI: o script (1) instala o shim em `~/.config/nvidia-harness/bin/nvidia-cursor-proxy.py` e sobe `nvidia-harness-cursor-proxy.service` (`http://127.0.0.1:12436/v1`), (2) prova `chat/completions` e (3) grava Base URL, `useOpenAIKey`, chave no SecretStorage e só os ids que responderam.
+**Feche o Cursor, rode o comando, abra de novo.** Nada para colar na UI: o script (1) instala o shim em `~/.config/nvidia-harness/bin/nvidia-cursor-proxy.py` e sobe `nvidia-harness-cursor-proxy.service` (`http://127.0.0.1:12436/v1`) com `Restart=always` + linger (sobe no boot, mesmo após desligar), (2) prova `chat/completions` e (3) grava Base URL, `useOpenAIKey`, chave no SecretStorage e só os ids que responderam. Unidade legado `nvidia-cursor-proxy.service` é desligada.
 
 O proxy é obrigatório — o Agent do Cursor manda `content` em lista; a NIM rejeita isso com 400. No picker o prefixo diz a origem: `nvidia/…` = NIM, `opencode/…` = pool grátis do OpenCode (só se o LiteLLM `:4000` estiver no ar), sem prefixo = nativo do Cursor.
 
@@ -180,7 +180,7 @@ docs/TROUBLESHOOTING.md
 
 ## Limitações
 
-- Cursor: o Agent exige o proxy local (`:12436`) para flatten Harmony. Pool OpenCode (`coder`/`fast`) só entra com LiteLLM em `:4000`. A IDE tem de estar **fechada** para gravar o `state.vscdb` (backup só da linha alterada — o banco pode ter dezenas de GB).
+- Cursor: o Agent exige o proxy local (`:12436`) para flatten Harmony. O serviço `nvidia-harness-cursor-proxy` fica no systemd --user (`Restart=always`) e no boot via linger. Pool OpenCode (`coder`/`fast`) só entra com LiteLLM em `:4000`. A IDE tem de estar **fechada** para gravar o `state.vscdb` (backup só da linha alterada — o banco pode ter dezenas de GB).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`). Pool OpenCode só entra com LiteLLM em `:4000`.
 - Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).

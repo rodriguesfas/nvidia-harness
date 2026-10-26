@@ -354,11 +354,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json_response(self, code: int, payload: dict) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _fetch_json(self, url: str, headers: dict[str, str], timeout: int = 12):
         req = urllib.request.Request(url, headers=headers, method="GET")
@@ -417,25 +420,43 @@ class Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
         except urllib.error.HTTPError as err:
             data = err.read()
-            self.send_response(err.code)
-            ctype = err.headers.get("Content-Type", "application/json")
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(err.code)
+                ctype = err.headers.get("Content-Type", "application/json")
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                return
         except Exception as exc:  # noqa: BLE001 — last-mile proxy
             data = json.dumps({"error": {"message": str(exc), "type": "proxy_error"}}).encode()
-            self.send_response(502)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        if path.rstrip("/").endswith("/models"):
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path in {"/health", "/v1/health", "/healthz"}:
+            self._json_response(
+                200,
+                {
+                    "ok": True,
+                    "upstream": UPSTREAM,
+                    "free_router": FREE_ROUTER,
+                },
+            )
+            return
+        if path.endswith("/models"):
             self._send_merged_models()
             return
         self._send_upstream("GET", self.path, None)
