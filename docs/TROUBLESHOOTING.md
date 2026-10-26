@@ -55,6 +55,17 @@ O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o
 - Regressão offline: `./install.sh --self-test` (sobe o shim + upstreams mock; não usa a chave NVIDIA).
 - No picker: `nvidia/…` = NIM, `opencode/…` = pool OpenCode, sem prefixo = nativo do Cursor. OpenCode só aparece depois de fechar a IDE e `./install.sh cursor --yes` com o LiteLLM `:4000` no ar.
 
+## Cursor: HTTP 403 `Access to private networks is forbidden`
+
+O Agent **não** fala com `127.0.0.1`. O cloud da IDE monta o prompt e chama a Override OpenAI Base URL a partir dos servidores deles; RFC1918/`localhost` são recusados (filtro SSRF). O shim em `:12436` pode estar saudável (`curl /health` 200, zero POST no journal) e o chat ainda falha.
+
+- `./install.sh cursor --yes` tenta o Funnel do [Tailscale](https://tailscale.com/kb/1247/funnel-serve-use-cases) (`tailscale funnel --bg 12436`). Se o `tailscaled` exigir root (`sudo tailscale set --operator=$USER`), cai no [ngrok](https://ngrok.com) (`nvidia-harness-cursor-tunnel.service`) e grava `https://…/v1` em Settings / `openAIBaseUrl`.
+- Diagnose: linha `public` em `./install.sh cursor --diagnose`. Ficheiro `~/.config/nvidia-harness/cursor-public-url`.
+- URL fixa: Funnel (DNS `*.ts.net`) ou domínio reservado do ngrok. O ngrok free muda o host a cada arranque — o timer BYOK regrava quando o Cursor está fechado.
+- Override manual: `CURSOR_PUBLIC_URL=https://…/v1 ./install.sh cursor --yes`.
+- POST no shim exige `Authorization: Bearer …` (a chave que o Cursor já envia). `/health` continua aberto.
+- Este chat da sessão antiga não muda de Base URL sozinho — Agent **novo** depois de gravar o túnel.
+
 ## Cursor: proxy some após reboot / desligar
 
 O shim tem de ser a unidade **nova** `nvidia-harness-cursor-proxy.service`, não a legado `nvidia-cursor-proxy.service` (binário em `local-ai/`).

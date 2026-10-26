@@ -5,7 +5,7 @@ Instalador **unificado** para usar modelos [NVIDIA NIM](https://build.nvidia.com
 | Harness | O que o script faz |
 |---|---|
 | **Claude Code** | Proxy [LiteLLM](https://github.com/BerriAI/litellm) local + wrapper `claude-nvidia` (NIM + pool OpenCode se `:4000`) |
-| **Cursor** | Instala o proxy local (`:12436`), grava Base URL + chave + **só** modelos com smoke 200 (NIM e, se o LiteLLM `:4000` estiver no ar, `coder`/`fast`/…). Feche o Cursor antes. |
+| **Cursor** | Instala o proxy local (`:12436`) + túnel HTTPS (Funnel Tailscale ou ngrok), grava Base URL + chave + **só** modelos com smoke 200 (NIM e, se o LiteLLM `:4000` estiver no ar, `coder`/`fast`/…). Feche o Cursor antes. |
 | **OpenCode** | Mescla `provider.nvidia` em `~/.config/opencode/opencode.json` |
 | **VS Code** | Instala [nvidia-nim-provider](https://github.com/hidenobunagai/nvidia-nim-provider) e orienta o cadastro seguro da chave |
 | **Antigravity** | Instala o [Cline](https://docs.cline.bot/) e **grava** OpenAI Compatible → NIM (provider/baseUrl/modelo no `state.vscdb` + chave no SecretStorage) |
@@ -78,9 +78,9 @@ Pool grátis do OpenCode (`opencode-coder`, `opencode-fast`, …) entra no mesmo
 NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
 ```
 
-**Feche o Cursor, rode o comando, abra de novo.** Nada para colar na UI: o script (1) instala o shim em `~/.config/nvidia-harness/bin/nvidia-cursor-proxy.py` e sobe `nvidia-harness-cursor-proxy.service` (`http://127.0.0.1:12436/v1`) com `Restart=always` + linger (sobe no boot, mesmo após desligar), (2) prova `chat/completions` e (3) grava Base URL, `useOpenAIKey`, chave no SecretStorage e só os ids que responderam. Unidade legado `nvidia-cursor-proxy.service` é desligada.
+**Feche o Cursor, rode o comando, abra de novo.** Nada para colar na UI: o script (1) instala o shim em `~/.config/nvidia-harness/bin/nvidia-cursor-proxy.py` e sobe `nvidia-harness-cursor-proxy.service` (`http://127.0.0.1:12436/v1`) com `Restart=always` + linger (sobe no boot, mesmo após desligar), (2) expõe o shim em HTTPS público (Funnel Tailscale, ou ngrok se o Funnel exigir root), (3) prova `chat/completions` e (4) grava Base URL pública, `useOpenAIKey`, chave no SecretStorage e só os ids que responderam. Unidade legado `nvidia-cursor-proxy.service` é desligada.
 
-O proxy é obrigatório — o Agent do Cursor manda `content` em lista; a NIM rejeita isso com 400. No picker o prefixo diz a origem: `nvidia/…` = NIM, `opencode/…` = pool grátis do OpenCode (só se o LiteLLM `:4000` estiver no ar), sem prefixo = nativo do Cursor.
+O proxy é obrigatório — o Agent do Cursor manda `content` em lista; a NIM rejeita isso com 400. A Base URL na IDE tem de ser HTTPS público (`https://<nó>.ts.net/v1` ou o host ngrok), não `http://127.0.0.1:12436/v1` — senão o cloud devolve 403 *Access to private networks is forbidden*. No picker o prefixo diz a origem: `nvidia/…` = NIM, `opencode/…` = pool grátis do OpenCode (só se o LiteLLM `:4000` estiver no ar), sem prefixo = nativo do Cursor.
 
 Sem `git clone` (tarball em `/tmp`, apaga ao sair):
 
@@ -135,7 +135,7 @@ Candidatos (smoke 2026-10-24): Nemotron 3.5 Super VL / Ultra 550B / Lightning 30
 ## Diagnóstico
 
 ```bash
-./install.sh --self-test          # offline: flatten Harmony + HTTP mock (/health, NIM, opencode/fast)
+./install.sh --self-test          # offline: flatten Harmony + HTTP mock (/health, 401 sem Bearer, NIM, opencode/fast)
 ./install.sh diagnose
 ./install.sh cursor --diagnose
 ```
@@ -181,7 +181,7 @@ docs/TROUBLESHOOTING.md
 
 ## Limitações
 
-- Cursor: o Agent exige o proxy local (`:12436`) para flatten Harmony. O serviço `nvidia-harness-cursor-proxy` fica no systemd --user (`Restart=always`) e no boot via linger. Pool OpenCode (`coder`/`fast`) só entra com LiteLLM em `:4000`. A IDE tem de estar **fechada** para gravar o `state.vscdb` (backup só da linha alterada — o banco pode ter dezenas de GB).
+- Cursor: o Agent exige o proxy local (`:12436`) para flatten Harmony **e** uma Base URL HTTPS pública (Funnel Tailscale ou ngrok). O serviço `nvidia-harness-cursor-proxy` fica no systemd --user (`Restart=always`) e no boot via linger. `127.0.0.1` na Override Base URL dá 403 no cloud da IDE. Pool OpenCode (`coder`/`fast`) só entra com LiteLLM em `:4000`. A IDE tem de estar **fechada** para gravar o `state.vscdb` (backup só da linha alterada — o banco pode ter dezenas de GB).
 - VS Code: a chave fica no SecretStorage da IDE, não no disk do harness.
 - Claude Code: depende do proxy LiteLLM local (portas `4310–4313`). Pool OpenCode só entra com LiteLLM em `:4000`.
 - Antigravity: Cascade e `agy` não usam a API OpenAI da NIM; o caminho é Cline (OpenAI Compatible).

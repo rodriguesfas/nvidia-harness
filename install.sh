@@ -179,6 +179,16 @@ self_test() {
     || erro "self-test: cursor-byok-apply.py inválido"
   grep -q 'nvidia-harness-cursor-byok.timer' "$NH_ROOT/lib/cursor-proxy.sh" \
     || erro "self-test: timer BYOK ausente em cursor-proxy.sh"
+  grep -q 'tailscale funnel' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: Funnel Tailscale ausente em cursor-proxy.sh"
+  grep -q 'nvidia-harness-cursor-tunnel.service' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: unidade ngrok ausente em cursor-proxy.sh"
+  python3 -m py_compile "$NH_ROOT/proxy/cursor-tunnel-url.py" \
+    || erro "self-test: cursor-tunnel-url.py inválido"
+  grep -q '_bearer_ok' "$NH_ROOT/proxy/nvidia-cursor-proxy.py" \
+    || erro "self-test: Bearer no POST do proxy Cursor ausente"
+  grep -q 'Access to private networks is forbidden' "$NH_ROOT/docs/TROUBLESHOOTING.md" \
+    || erro "self-test: 403 SSRF ausente em TROUBLESHOOTING.md"
   grep -q 'ANTHROPIC_BASE_URL' "$NH_ROOT/harnesses/claude.sh" \
     || erro "self-test: settings.env ANTHROPIC_BASE_URL ausente em claude.sh"
   grep -q 'cordis.patch.yml' "$NH_ROOT/harnesses/deepseek.sh" \

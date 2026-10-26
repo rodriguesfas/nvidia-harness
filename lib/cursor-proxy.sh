@@ -6,6 +6,7 @@ NH_CURSOR_PROXY_PORT="${NH_CURSOR_PROXY_PORT:-12436}"
 NH_CURSOR_PROXY_HOST="${NH_CURSOR_PROXY_HOST:-127.0.0.1}"
 CURSOR_PROXY_URL="${CURSOR_PROXY_URL:-http://${NH_CURSOR_PROXY_HOST}:${NH_CURSOR_PROXY_PORT}/v1}"
 NH_FREE_ROUTER_URL="${NH_FREE_ROUTER_URL:-http://127.0.0.1:4000}"
+NH_CURSOR_PUBLIC_URL_FILE="${NH_CURSOR_PUBLIC_URL_FILE:-$NH_CONFIG_DIR/cursor-public-url}"
 NH_PROXY_BIN="${NH_PROXY_BIN:-$NH_CONFIG_DIR/bin/nvidia-cursor-proxy.py}"
 NH_PROXY_ENVF="${NH_PROXY_ENVF:-$NH_CONFIG_DIR/proxy.env}"
 NH_PROXY_UNIT_NAME="nvidia-harness-cursor-proxy.service"
@@ -249,11 +250,152 @@ NH_BYOK_TIMER_NAME="nvidia-harness-cursor-byok.timer"
 NH_BYOK_UNIT="${NH_BYOK_UNIT:-$HOME/.config/systemd/user/$NH_BYOK_UNIT_NAME}"
 NH_BYOK_TIMER="${NH_BYOK_TIMER:-$HOME/.config/systemd/user/$NH_BYOK_TIMER_NAME}"
 
-nh_write_cursor_byok_json() {
-  local models="${1:-}"
+# O Agent do Cursor não chama 127.0.0.1: o cloud da IDE recusa RFC1918
+# ("Access to private networks is forbidden"). Base URL na IDE tem de ser
+# HTTPS público. O Funnel do Tailscale aponta para o shim local.
+nh_tailscale_dns_name() {
+  has_cmd tailscale || return 1
+  tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+name = ((d.get("Self") or {}).get("DNSName") or "").strip().rstrip(".")
+if not name:
+    raise SystemExit(1)
+print(name)
+' 2>/dev/null
+}
+
+nh_cursor_public_base_url() {
+  local url host
+  if [ -n "${CURSOR_PUBLIC_URL:-}" ]; then
+    url="${CURSOR_PUBLIC_URL%/}"
+    printf '%s' "$url"
+    return 0
+  fi
+  if [ -f "$NH_CURSOR_PUBLIC_URL_FILE" ]; then
+    url="$(tr -d '[:space:]' < "$NH_CURSOR_PUBLIC_URL_FILE" || true)"
+    if [ -n "$url" ]; then
+      printf '%s' "${url%/}"
+      return 0
+    fi
+  fi
+  host="$(nh_tailscale_dns_name || true)"
+  if [ -n "$host" ]; then
+    printf 'https://%s/v1' "$host"
+    return 0
+  fi
+  return 1
+}
+
+nh_write_cursor_public_url() {
+  local url="${1:-}"
+  [ -n "$url" ] || return 1
   ensure_dir "$NH_CONFIG_DIR"
   umask 077
-  CURSOR_PROXY_URL="$CURSOR_PROXY_URL" NH_BYOK_JSON="$NH_BYOK_JSON" \
+  printf '%s\n' "${url%/}" > "$NH_CURSOR_PUBLIC_URL_FILE"
+  chmod 600 "$NH_CURSOR_PUBLIC_URL_FILE"
+}
+
+nh_enable_cursor_funnel() {
+  local host url
+  has_cmd tailscale || return 1
+  if ! tailscale funnel --bg --yes "$NH_CURSOR_PROXY_PORT" >/dev/null 2>&1; then
+    return 1
+  fi
+  host="$(nh_tailscale_dns_name || true)"
+  [ -n "$host" ] || return 1
+  url="https://${host}/v1"
+  nh_write_cursor_public_url "$url"
+  CURSOR_PUBLIC_URL="$url"
+  export CURSOR_PUBLIC_URL
+  ok "Funnel Cursor: $url → 127.0.0.1:${NH_CURSOR_PROXY_PORT}"
+}
+
+NH_TUNNEL_BIN="${NH_TUNNEL_BIN:-$NH_CONFIG_DIR/bin/cursor-tunnel-url.py}"
+NH_TUNNEL_SRC="${NH_TUNNEL_SRC:-$NH_ROOT/proxy/cursor-tunnel-url.py}"
+NH_TUNNEL_UNIT_NAME="nvidia-harness-cursor-tunnel.service"
+NH_TUNNEL_UNIT="${NH_TUNNEL_UNIT:-$HOME/.config/systemd/user/$NH_TUNNEL_UNIT_NAME}"
+
+nh_enable_cursor_ngrok() {
+  local ngrok url
+  ngrok="$(command -v ngrok || true)"
+  [ -n "$ngrok" ] || {
+    aviso "sem ngrok e sem Funnel — o Agent recusa 127.0.0.1. Instale ngrok ou sudo tailscale set --operator=\$USER"
+    return 1
+  }
+  [ -f "$NH_TUNNEL_SRC" ] || return 1
+  ensure_dir "$(dirname "$NH_TUNNEL_BIN")"
+  cp -a "$NH_TUNNEL_SRC" "$NH_TUNNEL_BIN"
+  chmod 755 "$NH_TUNNEL_BIN"
+  ensure_dir "$(dirname "$NH_TUNNEL_UNIT")"
+  cat > "$NH_TUNNEL_UNIT" <<EOF
+[Unit]
+Description=nvidia-harness Cursor public tunnel (ngrok → :${NH_CURSOR_PROXY_PORT})
+After=network-online.target nvidia-harness-cursor-proxy.service
+Wants=network-online.target nvidia-harness-cursor-proxy.service
+
+[Service]
+Type=simple
+ExecStart=$ngrok http 127.0.0.1:${NH_CURSOR_PROXY_PORT} --log stdout
+ExecStartPost=-/usr/bin/python3 $NH_TUNNEL_BIN
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+  has_cmd systemctl || return 1
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user enable --now "$NH_TUNNEL_UNIT_NAME" >/dev/null 2>&1 || {
+    aviso "não subiu $NH_TUNNEL_UNIT_NAME"
+    return 1
+  }
+  NH_TUNNEL_WAIT=20 python3 "$NH_TUNNEL_BIN" >/dev/null || true
+  url="$(nh_cursor_public_base_url || true)"
+  if [ -z "$url" ]; then
+    aviso "ngrok no ar mas URL pública ainda vazia"
+    return 1
+  fi
+  CURSOR_PUBLIC_URL="$url"
+  export CURSOR_PUBLIC_URL
+  ok "túnel Cursor: $url → 127.0.0.1:${NH_CURSOR_PROXY_PORT}"
+}
+
+nh_enable_cursor_public_url() {
+  local url
+  if [ -n "${CURSOR_PUBLIC_URL:-}" ]; then
+    nh_write_cursor_public_url "$CURSOR_PUBLIC_URL"
+    ok "CURSOR_PUBLIC_URL=$CURSOR_PUBLIC_URL"
+    return 0
+  fi
+  if nh_enable_cursor_funnel; then
+    return 0
+  fi
+  if nh_enable_cursor_ngrok; then
+    return 0
+  fi
+  url="$(nh_cursor_public_base_url || true)"
+  if [ -n "$url" ]; then
+    CURSOR_PUBLIC_URL="$url"
+    export CURSOR_PUBLIC_URL
+    return 0
+  fi
+  aviso "sem URL pública — o Agent do Cursor recusa 127.0.0.1 (SSRF 403)"
+  return 1
+}
+
+nh_write_cursor_byok_json() {
+  local models="${1:-}" public
+  public="$(nh_cursor_public_base_url || true)"
+  if [ -z "$public" ]; then
+    public="$CURSOR_PROXY_URL"
+  fi
+  ensure_dir "$NH_CONFIG_DIR"
+  umask 077
+  CURSOR_PROXY_URL="$public" NH_BYOK_JSON="$NH_BYOK_JSON" \
   CURSOR_MODELS_JOINED="$models" python3 <<'PY'
 import json, os, pathlib
 p = pathlib.Path(os.environ["NH_BYOK_JSON"])
@@ -307,4 +449,5 @@ nh_ensure_cursor_proxy() {
   nh_try_start_free_router || true
   nh_install_cursor_proxy_files
   nh_start_cursor_proxy
+  nh_enable_cursor_public_url || true
 }

@@ -363,6 +363,24 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
+    def _bearer_ok(self) -> bool:
+        raw = (self.headers.get("Authorization") or self.headers.get("authorization") or "").strip()
+        if not raw.lower().startswith("bearer "):
+            return False
+        return bool(raw.split(None, 1)[-1].strip())
+
+    def _reject_unauthorized(self) -> None:
+        self._json_response(
+            401,
+            {
+                "error": {
+                    "message": "Missing Authorization bearer token",
+                    "type": "invalid_request_error",
+                    "code": "unauthorized",
+                }
+            },
+        )
+
     def _fetch_json(self, url: str, headers: dict[str, str], timeout: int = 12):
         req = urllib.request.Request(url, headers=headers, method="GET")
         ctx = ssl.create_default_context() if url.startswith("https://") else None
@@ -468,6 +486,9 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b"{}"
         path = self.path.split("?", 1)[0]
         if path.endswith("/chat/completions") or path.endswith("/responses"):
+            if not self._bearer_ok():
+                self._reject_unauthorized()
+                return
             try:
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except json.JSONDecodeError:
@@ -572,6 +593,21 @@ def _http_selftest() -> None:
         assert time.monotonic() - started < 1.0
         assert nvidia_gets == [], "GET /health não pode falar com a NVIDIA"
 
+        unauth = urllib.request.Request(
+            base + "/v1/chat/completions",
+            data=b'{"model":"x","messages":[]}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(unauth, timeout=5)
+            raise AssertionError("POST sem Bearer tinha de ser 401")
+        except urllib.error.HTTPError as err:
+            assert err.code == 401
+            denied = json.loads(err.read().decode("utf-8"))
+            assert denied["error"]["code"] == "unauthorized"
+        assert nvidia_posts == [], "401 não pode chegar à NIM"
+
         harmony = {
             "model": "nvidia/openai/gpt-oss-20b",
             "max_tokens": 8,
@@ -582,7 +618,10 @@ def _http_selftest() -> None:
         req = urllib.request.Request(
             base + "/v1/chat/completions",
             data=json.dumps(harmony).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -602,7 +641,10 @@ def _http_selftest() -> None:
         req = urllib.request.Request(
             base + "/v1/chat/completions",
             data=json.dumps(free_body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
