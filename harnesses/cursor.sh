@@ -239,6 +239,8 @@ ok "modelos ativos: ${ACTIVE_MODELS[*]}"
 
 nh_save_shared_env
 nh_write_proxy_env
+nh_write_cursor_byok_json "${ACTIVE_MODELS[*]}"
+nh_install_cursor_byok_timer
 
 cursor_write_settings() {
   local current=""
