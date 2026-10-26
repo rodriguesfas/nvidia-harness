@@ -157,14 +157,38 @@ self_test() {
   out="$(run_harness_fwd cursor --diagnose)"
   [ "$out" = "run name=cursor argc=2" ] || erro "self-test fwd FORWARD_ARGS unset: got '$out'"
 
-  python3 "$NH_ROOT/proxy/nvidia-cursor-proxy.py" --selftest >/dev/null \
+  python3 "$NH_ROOT/proxy/nvidia-cursor-proxy.py" --selftest \
     || erro "self-test do proxy Cursor falhou"
 
   bash -n "$NH_ROOT/lib/claude-proxy.sh" || erro "sintaxe de lib/claude-proxy.sh"
+  bash -n "$NH_ROOT/lib/cursor-proxy.sh" || erro "sintaxe de lib/cursor-proxy.sh"
   bash -n "$NH_ROOT/harnesses/claude.sh" || erro "sintaxe de harnesses/claude.sh"
+  bash -n "$NH_ROOT/harnesses/cursor.sh" || erro "sintaxe de harnesses/cursor.sh"
   bash -n "$NH_ROOT/harnesses/deepseek.sh" || erro "sintaxe de harnesses/deepseek.sh"
   grep -q 'nvidia-harness-claude-proxy.service' "$NH_ROOT/lib/claude-proxy.sh" \
     || erro "self-test: unidade Claude ausente em claude-proxy.sh"
+  grep -q 'Restart=always' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: Restart=always ausente em cursor-proxy.sh"
+  grep -q 'enable-linger' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: linger ausente em cursor-proxy.sh"
+  grep -q 'nvidia-cursor-proxy.service' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: aposentadoria da unidade legado ausente em cursor-proxy.sh"
+  grep -q '/health' "$NH_ROOT/proxy/nvidia-cursor-proxy.py" \
+    || erro "self-test: /health ausente no proxy Cursor"
+  python3 -m py_compile "$NH_ROOT/proxy/cursor-byok-apply.py" \
+    || erro "self-test: cursor-byok-apply.py inválido"
+  grep -q 'nvidia-harness-cursor-byok.timer' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: timer BYOK ausente em cursor-proxy.sh"
+  grep -q 'tailscale funnel' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: Funnel Tailscale ausente em cursor-proxy.sh"
+  grep -q 'nvidia-harness-cursor-tunnel.service' "$NH_ROOT/lib/cursor-proxy.sh" \
+    || erro "self-test: unidade ngrok ausente em cursor-proxy.sh"
+  python3 -m py_compile "$NH_ROOT/proxy/cursor-tunnel-url.py" \
+    || erro "self-test: cursor-tunnel-url.py inválido"
+  grep -q '_bearer_ok' "$NH_ROOT/proxy/nvidia-cursor-proxy.py" \
+    || erro "self-test: Bearer no POST do proxy Cursor ausente"
+  grep -q 'Access to private networks is forbidden' "$NH_ROOT/docs/TROUBLESHOOTING.md" \
+    || erro "self-test: 403 SSRF ausente em TROUBLESHOOTING.md"
   grep -q 'ANTHROPIC_BASE_URL' "$NH_ROOT/harnesses/claude.sh" \
     || erro "self-test: settings.env ANTHROPIC_BASE_URL ausente em claude.sh"
   grep -q 'cordis.patch.yml' "$NH_ROOT/harnesses/deepseek.sh" \
@@ -172,7 +196,7 @@ self_test() {
   python3 "$NH_ROOT/lib/dsh-patch.py" --selftest >/dev/null \
     || erro "self-test de lib/dsh-patch.py falhou"
 
-  ok "self-test ok (array vazio/unset + proxy Cursor + Claude persistente + dsh)"
+  ok "self-test ok (array vazio/unset + proxy HTTP mock + Claude persistente + dsh)"
   exit 0
 }
 

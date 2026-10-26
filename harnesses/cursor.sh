@@ -100,7 +100,7 @@ APPUSER_KEY='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.
 cursor_configured() {
   local want="${1:-}"
   [ -f "$STATE_DB" ] || return 1
-  python3 - "$STATE_DB" "$CURSOR_PROXY_URL" "$want" <<'PY' >/dev/null 2>&1
+  python3 - "$STATE_DB" "${CURSOR_BASE_URL:-$CURSOR_PROXY_URL}" "$want" <<'PY' >/dev/null 2>&1
 import json, sqlite3, sys
 con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 row = con.execute("select value from ItemTable where key='src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser'").fetchone()
@@ -132,6 +132,17 @@ print('  baseUrl  :', d.get('cursor.openai.baseUrl') or '(não definido)')
 PY
   fi
   printf '  proxy    : %s (%s)\n' "$CURSOR_PROXY_URL" "$(cursor_proxy_up && echo ativo || echo ausente)"
+  printf '  public   : %s\n' "$(nh_cursor_public_base_url 2>/dev/null || echo '(ausente — Agent 403 em 127.0.0.1)')"
+  if has_cmd systemctl; then
+    printf '  unit     : %s (%s)\n' "$NH_PROXY_UNIT_NAME" \
+      "$(systemctl --user is-active "$NH_PROXY_UNIT_NAME" 2>/dev/null || echo inativo)"
+    printf '  enabled  : %s\n' \
+      "$(systemctl --user is-enabled "$NH_PROXY_UNIT_NAME" 2>/dev/null || echo disabled)"
+  fi
+  if has_cmd loginctl; then
+    printf '  linger   : %s\n' \
+      "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || echo desconhecido)"
+  fi
   printf '  free-rtr : %s (%s)\n' "$NH_FREE_ROUTER_URL" "$(nh_free_router_up && echo ativo || echo ausente)"
   printf '  state db : %s (%s)\n' "$STATE_DB" "$([ -f "$STATE_DB" ] && echo presente || echo ausente)"
   if [ -f "$STATE_DB" ]; then
@@ -179,9 +190,18 @@ nh_resolve_api_key
 nh_ensure_cursor_proxy || aviso "seguindo sem proxy local — Agent do Cursor pode falhar no flatten Harmony"
 
 CURSOR_BASE_URL="$NVIDIA_BASE_URL"
+SMOKE_URL="$NVIDIA_BASE_URL"
 FREE_ON=0
 if cursor_proxy_up; then
+  SMOKE_URL="$CURSOR_PROXY_URL"
   CURSOR_BASE_URL="$CURSOR_PROXY_URL"
+  public="$(nh_cursor_public_base_url || true)"
+  if [ -n "$public" ]; then
+    CURSOR_BASE_URL="$public"
+    ok "BYOK Cursor via URL pública: $CURSOR_BASE_URL"
+  else
+    aviso "sem URL pública — o Agent do Cursor recusa 127.0.0.1 (SSRF 403)"
+  fi
   if nh_free_router_up; then
     FREE_ON=1
     ok "proxy + pool OpenCode (:4000) — NIM e coder/fast/…"
@@ -196,7 +216,7 @@ ACTIVE_MODELS=()
 if [ "$DO_TEST" = 1 ]; then
   log "validando modelos candidatos (chat/completions, exige conteúdo)"
   NVIDIA_BASE_URL_ORIG="$NVIDIA_BASE_URL"
-  NVIDIA_BASE_URL="$CURSOR_BASE_URL" NH_SMOKE_REQUIRE_CONTENT=1
+  NVIDIA_BASE_URL="$SMOKE_URL" NH_SMOKE_REQUIRE_CONTENT=1
   export NVIDIA_BASE_URL NH_SMOKE_REQUIRE_CONTENT
   for m in "${CURSOR_NIM_MODELS[@]}"; do
     if NH_SMOKE_STRICT=0 nh_smoke_chat "$m"; then
@@ -229,6 +249,8 @@ ok "modelos ativos: ${ACTIVE_MODELS[*]}"
 
 nh_save_shared_env
 nh_write_proxy_env
+nh_write_cursor_byok_json "${ACTIVE_MODELS[*]}"
+nh_install_cursor_byok_timer
 
 cursor_write_settings() {
   local current=""
@@ -241,7 +263,7 @@ cursor_write_settings() {
     return 0
   fi
   case "$current" in
-    ""|"$NVIDIA_BASE_URL"|"$CURSOR_PROXY_URL"|"http://127.0.0.1:12436/v1"|"https://integrate.api.nvidia.com/v1")
+    ""|"$NVIDIA_BASE_URL"|"$CURSOR_PROXY_URL"|"$SMOKE_URL"|"http://127.0.0.1:12436/v1"|"https://integrate.api.nvidia.com/v1")
       ;;
     *)
       confirm "Substituir cursor.openai.baseUrl ($current → $CURSOR_BASE_URL)?" || {

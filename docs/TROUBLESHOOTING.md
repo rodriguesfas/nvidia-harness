@@ -51,11 +51,33 @@ O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o
 - `cursor.openai.baseUrl` e `openAIBaseUrl` no `state.vscdb` = `http://127.0.0.1:12436/v1`.
 - Chave OpenAI = `nvapi-…` (o proxy encaminha à NIM; nos ids `coder`/`fast`/… troca pela chave do LiteLLM).
 - `systemctl --user status nvidia-harness-cursor-proxy` (ou `./install.sh cursor --diagnose`).
+- `curl -sS http://127.0.0.1:12436/health` tem de devolver `{"ok":true,…}` sem esperar o catálogo NVIDIA.
+- Regressão offline: `./install.sh --self-test` (sobe o shim + upstreams mock; não usa a chave NVIDIA).
 - No picker: `nvidia/…` = NIM, `opencode/…` = pool OpenCode, sem prefixo = nativo do Cursor. OpenCode só aparece depois de fechar a IDE e `./install.sh cursor --yes` com o LiteLLM `:4000` no ar.
+
+## Cursor: HTTP 403 `Access to private networks is forbidden`
+
+O Agent **não** fala com `127.0.0.1`. O cloud da IDE monta o prompt e chama a Override OpenAI Base URL a partir dos servidores deles; RFC1918/`localhost` são recusados (filtro SSRF). O shim em `:12436` pode estar saudável (`curl /health` 200, zero POST no journal) e o chat ainda falha.
+
+- `./install.sh cursor --yes` tenta o Funnel do [Tailscale](https://tailscale.com/kb/1247/funnel-serve-use-cases) (`tailscale funnel --bg 12436`). Se o `tailscaled` exigir root (`sudo tailscale set --operator=$USER`), cai no [ngrok](https://ngrok.com) (`nvidia-harness-cursor-tunnel.service`) e grava `https://…/v1` em Settings / `openAIBaseUrl`.
+- Diagnose: linha `public` em `./install.sh cursor --diagnose`. Ficheiro `~/.config/nvidia-harness/cursor-public-url`.
+- URL fixa: Funnel (DNS `*.ts.net`) ou domínio reservado do ngrok. O ngrok free muda o host a cada arranque — o timer BYOK regrava quando o Cursor está fechado.
+- Override manual: `CURSOR_PUBLIC_URL=https://…/v1 ./install.sh cursor --yes`.
+- POST no shim exige `Authorization: Bearer …` (a chave que o Cursor já envia). `/health` continua aberto.
+- Este chat da sessão antiga não muda de Base URL sozinho — Agent **novo** depois de gravar o túnel.
+
+## Cursor: proxy some após reboot / desligar
+
+O shim tem de ser a unidade **nova** `nvidia-harness-cursor-proxy.service`, não a legado `nvidia-cursor-proxy.service` (binário em `local-ai/`).
+
+- `systemctl --user is-enabled nvidia-harness-cursor-proxy` → `enabled`
+- `loginctl show-user "$USER" -p Linger` → `Linger=yes` (sem linger o systemd --user só sobe no login)
+- `./install.sh cursor --yes` activa linger, desliga a unidade legado e faz `Restart=always`
+- Diagnose: linha `unit` / `enabled` / `linger` em `./install.sh cursor --diagnose`
 
 ## Cursor: configuração some / modelos NVIDIA não respondem
 
-- **Feche o Cursor** e rode `./install.sh cursor --yes`. Aberto, a IDE reverte o `state.vscdb` ao sair.
+- **Feche o Cursor** e rode `./install.sh cursor --yes`. Aberto, a IDE reverte o `state.vscdb` ao sair. O timer `nvidia-harness-cursor-byok` grava Base URL + chave + modelos validados quando a IDE não está a correr, para a próxima abertura já ir ao proxy (`http://127.0.0.1:12436/v1`).
 - O script instala o proxy, prova `chat/completions` e grava só quem respondeu 200 **com texto**. Pool OpenCode (`coder`, `fast`, …) só entra se o LiteLLM `:4000` estiver no ar.
 - Estar em `GET /v1/models` **não** significa que o modelo responde (404 “Function not found for account”, timeout, vazio).
 - Backup: `~/.config/nvidia-harness/backups/cursor-state-<timestamp>.json` (só a linha `applicationUser` — nunca copie o `state.vscdb` inteiro).

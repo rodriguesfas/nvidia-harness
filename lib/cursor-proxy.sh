@@ -6,6 +6,7 @@ NH_CURSOR_PROXY_PORT="${NH_CURSOR_PROXY_PORT:-12436}"
 NH_CURSOR_PROXY_HOST="${NH_CURSOR_PROXY_HOST:-127.0.0.1}"
 CURSOR_PROXY_URL="${CURSOR_PROXY_URL:-http://${NH_CURSOR_PROXY_HOST}:${NH_CURSOR_PROXY_PORT}/v1}"
 NH_FREE_ROUTER_URL="${NH_FREE_ROUTER_URL:-http://127.0.0.1:4000}"
+NH_CURSOR_PUBLIC_URL_FILE="${NH_CURSOR_PUBLIC_URL_FILE:-$NH_CONFIG_DIR/cursor-public-url}"
 NH_PROXY_BIN="${NH_PROXY_BIN:-$NH_CONFIG_DIR/bin/nvidia-cursor-proxy.py}"
 NH_PROXY_ENVF="${NH_PROXY_ENVF:-$NH_CONFIG_DIR/proxy.env}"
 NH_PROXY_UNIT_NAME="nvidia-harness-cursor-proxy.service"
@@ -27,7 +28,12 @@ nh_http_up() {
 }
 
 cursor_proxy_up() {
-  nh_http_up "${CURSOR_PROXY_URL%/}/models"
+  local base="http://${NH_CURSOR_PROXY_HOST}:${NH_CURSOR_PROXY_PORT}"
+  # /health é instantâneo. /v1/models espera o catálogo NVIDIA e falha o
+  # diagnose com timeout de 2s mesmo com o shim no ar.
+  nh_http_up "${base}/health" \
+    || nh_http_up "${base}/v1/health" \
+    || nh_http_up "${CURSOR_PROXY_URL%/}/models"
 }
 
 nh_free_router_up() {
@@ -144,12 +150,13 @@ nh_install_cursor_proxy_files() {
 [Unit]
 Description=nvidia-harness Cursor proxy (NVIDIA NIM + OpenCode free-router)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 $NH_PROXY_BIN
 EnvironmentFile=-$NH_PROXY_ENVF
-Restart=on-failure
+Restart=always
 RestartSec=2
 
 [Install]
@@ -158,24 +165,38 @@ EOF
   ok "proxy instalado em $NH_PROXY_BIN"
 }
 
-nh_start_cursor_proxy() {
-  if cursor_proxy_up; then
-    ok "proxy já escuta $CURSOR_PROXY_URL"
+# systemd --user só sobrevive a reboot/desligar com linger. Sem isso o
+# proxy só volta depois do login gráfico.
+nh_enable_user_linger() {
+  has_cmd loginctl || return 0
+  local linger
+  linger="$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)"
+  if [ "$linger" = "yes" ]; then
+    ok "linger já ativo — proxy sobe no boot"
     return 0
   fi
-  if has_cmd systemctl && [ -d "$HOME/.config/systemd/user" ]; then
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
-    if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
-      :
-    else
-      aviso "systemd --user não subiu o proxy; tentando processo em background"
-      nh_start_cursor_proxy_bg || return 1
-    fi
-  else
-    nh_start_cursor_proxy_bg || return 1
+  if loginctl enable-linger "$USER" >/dev/null 2>&1; then
+    ok "linger ativo para $USER (systemd --user no boot)"
+    return 0
   fi
+  aviso "não deu para activar linger (loginctl enable-linger $USER). Sem isso o proxy só sobe após o login."
+}
+
+# Unidade antiga (local-ai) ocupava :12436 e o harness achava que já estava ok.
+nh_retire_legacy_cursor_proxy() {
+  has_cmd systemctl || return 0
+  local legacy="nvidia-cursor-proxy.service"
+  if systemctl --user is-active "$legacy" >/dev/null 2>&1 \
+    || systemctl --user is-enabled "$legacy" >/dev/null 2>&1; then
+    log "desligando unidade legado $legacy (porta ${NH_CURSOR_PROXY_PORT})"
+    systemctl --user disable --now "$legacy" >/dev/null 2>&1 || true
+    systemctl --user stop "$legacy" >/dev/null 2>&1 || true
+  fi
+}
+
+nh_wait_cursor_proxy() {
   local _
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if cursor_proxy_up; then
       ok "proxy ativo em $CURSOR_PROXY_URL"
       return 0
@@ -184,6 +205,23 @@ nh_start_cursor_proxy() {
   done
   aviso "proxy ainda não responde em $CURSOR_PROXY_URL"
   return 1
+}
+
+nh_start_cursor_proxy() {
+  nh_enable_user_linger
+  nh_retire_legacy_cursor_proxy
+  if has_cmd systemctl && [ -d "$HOME/.config/systemd/user" ]; then
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
+      systemctl --user restart "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1 || true
+    else
+      aviso "systemd --user não subiu o proxy; tentando processo em background"
+      nh_start_cursor_proxy_bg || return 1
+    fi
+  else
+    nh_start_cursor_proxy_bg || return 1
+  fi
+  nh_wait_cursor_proxy
 }
 
 nh_start_cursor_proxy_bg() {
@@ -204,32 +242,206 @@ nh_start_cursor_proxy_bg() {
   echo $! > "$pidf"
 }
 
-nh_cursor_ide_running() {
-  pgrep -f "/usr/share/cursor/cursor" >/dev/null 2>&1 \
-    || pgrep -x cursor >/dev/null 2>&1
+NH_BYOK_JSON="${NH_BYOK_JSON:-$NH_CONFIG_DIR/cursor-byok.json}"
+NH_BYOK_BIN="${NH_BYOK_BIN:-$NH_CONFIG_DIR/bin/cursor-byok-apply.py}"
+NH_BYOK_SRC="${NH_BYOK_SRC:-$NH_ROOT/proxy/cursor-byok-apply.py}"
+NH_BYOK_UNIT_NAME="nvidia-harness-cursor-byok.service"
+NH_BYOK_TIMER_NAME="nvidia-harness-cursor-byok.timer"
+NH_BYOK_UNIT="${NH_BYOK_UNIT:-$HOME/.config/systemd/user/$NH_BYOK_UNIT_NAME}"
+NH_BYOK_TIMER="${NH_BYOK_TIMER:-$HOME/.config/systemd/user/$NH_BYOK_TIMER_NAME}"
+
+# O Agent do Cursor não chama 127.0.0.1: o cloud da IDE recusa RFC1918
+# ("Access to private networks is forbidden"). Base URL na IDE tem de ser
+# HTTPS público. O Funnel do Tailscale aponta para o shim local.
+nh_tailscale_dns_name() {
+  has_cmd tailscale || return 1
+  tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+name = ((d.get("Self") or {}).get("DNSName") or "").strip().rstrip(".")
+if not name:
+    raise SystemExit(1)
+print(name)
+' 2>/dev/null
 }
 
-# Troca o processo antigo pelo shim novo (prefixo opencode/…). Não faz isso
-# com a IDE aberta — ela está usando a porta.
-nh_reload_cursor_proxy() {
-  if nh_cursor_ide_running; then
-    aviso "Cursor aberto: proxy em execução fica como está; feche a IDE e rode de novo para carregar opencode/…"
+nh_cursor_public_base_url() {
+  local url host
+  if [ -n "${CURSOR_PUBLIC_URL:-}" ]; then
+    url="${CURSOR_PUBLIC_URL%/}"
+    printf '%s' "$url"
     return 0
   fi
+  if [ -f "$NH_CURSOR_PUBLIC_URL_FILE" ]; then
+    url="$(tr -d '[:space:]' < "$NH_CURSOR_PUBLIC_URL_FILE" || true)"
+    if [ -n "$url" ]; then
+      printf '%s' "${url%/}"
+      return 0
+    fi
+  fi
+  host="$(nh_tailscale_dns_name || true)"
+  if [ -n "$host" ]; then
+    printf 'https://%s/v1' "$host"
+    return 0
+  fi
+  return 1
+}
+
+nh_write_cursor_public_url() {
+  local url="${1:-}"
+  [ -n "$url" ] || return 1
+  ensure_dir "$NH_CONFIG_DIR"
+  umask 077
+  printf '%s\n' "${url%/}" > "$NH_CURSOR_PUBLIC_URL_FILE"
+  chmod 600 "$NH_CURSOR_PUBLIC_URL_FILE"
+}
+
+nh_enable_cursor_funnel() {
+  local host url
+  has_cmd tailscale || return 1
+  if ! tailscale funnel --bg --yes "$NH_CURSOR_PROXY_PORT" >/dev/null 2>&1; then
+    return 1
+  fi
+  host="$(nh_tailscale_dns_name || true)"
+  [ -n "$host" ] || return 1
+  url="https://${host}/v1"
+  nh_write_cursor_public_url "$url"
+  CURSOR_PUBLIC_URL="$url"
+  export CURSOR_PUBLIC_URL
+  ok "Funnel Cursor: $url → 127.0.0.1:${NH_CURSOR_PROXY_PORT}"
+}
+
+NH_TUNNEL_BIN="${NH_TUNNEL_BIN:-$NH_CONFIG_DIR/bin/cursor-tunnel-url.py}"
+NH_TUNNEL_SRC="${NH_TUNNEL_SRC:-$NH_ROOT/proxy/cursor-tunnel-url.py}"
+NH_TUNNEL_UNIT_NAME="nvidia-harness-cursor-tunnel.service"
+NH_TUNNEL_UNIT="${NH_TUNNEL_UNIT:-$HOME/.config/systemd/user/$NH_TUNNEL_UNIT_NAME}"
+
+nh_enable_cursor_ngrok() {
+  local ngrok url
+  ngrok="$(command -v ngrok || true)"
+  [ -n "$ngrok" ] || {
+    aviso "sem ngrok e sem Funnel — o Agent recusa 127.0.0.1. Instale ngrok ou sudo tailscale set --operator=\$USER"
+    return 1
+  }
+  [ -f "$NH_TUNNEL_SRC" ] || return 1
+  ensure_dir "$(dirname "$NH_TUNNEL_BIN")"
+  cp -a "$NH_TUNNEL_SRC" "$NH_TUNNEL_BIN"
+  chmod 755 "$NH_TUNNEL_BIN"
+  ensure_dir "$(dirname "$NH_TUNNEL_UNIT")"
+  cat > "$NH_TUNNEL_UNIT" <<EOF
+[Unit]
+Description=nvidia-harness Cursor public tunnel (ngrok → :${NH_CURSOR_PROXY_PORT})
+After=network-online.target nvidia-harness-cursor-proxy.service
+Wants=network-online.target nvidia-harness-cursor-proxy.service
+
+[Service]
+Type=simple
+ExecStart=$ngrok http 127.0.0.1:${NH_CURSOR_PROXY_PORT} --log stdout
+ExecStartPost=-/usr/bin/python3 $NH_TUNNEL_BIN
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+  has_cmd systemctl || return 1
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user enable --now "$NH_TUNNEL_UNIT_NAME" >/dev/null 2>&1 || {
+    aviso "não subiu $NH_TUNNEL_UNIT_NAME"
+    return 1
+  }
+  NH_TUNNEL_WAIT=20 python3 "$NH_TUNNEL_BIN" >/dev/null || true
+  url="$(nh_cursor_public_base_url || true)"
+  if [ -z "$url" ]; then
+    aviso "ngrok no ar mas URL pública ainda vazia"
+    return 1
+  fi
+  CURSOR_PUBLIC_URL="$url"
+  export CURSOR_PUBLIC_URL
+  ok "túnel Cursor: $url → 127.0.0.1:${NH_CURSOR_PROXY_PORT}"
+}
+
+nh_enable_cursor_public_url() {
+  local url
+  if [ -n "${CURSOR_PUBLIC_URL:-}" ]; then
+    nh_write_cursor_public_url "$CURSOR_PUBLIC_URL"
+    ok "CURSOR_PUBLIC_URL=$CURSOR_PUBLIC_URL"
+    return 0
+  fi
+  if nh_enable_cursor_funnel; then
+    return 0
+  fi
+  if nh_enable_cursor_ngrok; then
+    return 0
+  fi
+  url="$(nh_cursor_public_base_url || true)"
+  if [ -n "$url" ]; then
+    CURSOR_PUBLIC_URL="$url"
+    export CURSOR_PUBLIC_URL
+    return 0
+  fi
+  aviso "sem URL pública — o Agent do Cursor recusa 127.0.0.1 (SSRF 403)"
+  return 1
+}
+
+nh_write_cursor_byok_json() {
+  local models="${1:-}" public
+  public="$(nh_cursor_public_base_url || true)"
+  if [ -z "$public" ]; then
+    public="$CURSOR_PROXY_URL"
+  fi
+  ensure_dir "$NH_CONFIG_DIR"
+  umask 077
+  CURSOR_PROXY_URL="$public" NH_BYOK_JSON="$NH_BYOK_JSON" \
+  CURSOR_MODELS_JOINED="$models" python3 <<'PY'
+import json, os, pathlib
+p = pathlib.Path(os.environ["NH_BYOK_JSON"])
+models = os.environ.get("CURSOR_MODELS_JOINED", "").split()
+p.write_text(json.dumps({
+    "openAIBaseUrl": os.environ["CURSOR_PROXY_URL"],
+    "useOpenAIKey": True,
+    "userAddedModels": models,
+}, indent=2, ensure_ascii=False) + "\n")
+p.chmod(0o600)
+print("byok json:", p)
+PY
+}
+
+nh_install_cursor_byok_timer() {
+  [ -f "$NH_BYOK_SRC" ] || return 0
+  ensure_dir "$(dirname "$NH_BYOK_BIN")"
+  cp -a "$NH_BYOK_SRC" "$NH_BYOK_BIN"
+  chmod 755 "$NH_BYOK_BIN"
+  ensure_dir "$(dirname "$NH_BYOK_UNIT")"
+  cat > "$NH_BYOK_UNIT" <<EOF
+[Unit]
+Description=nvidia-harness apply Cursor BYOK when the IDE is idle
+After=nvidia-harness-cursor-proxy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $NH_BYOK_BIN
+EnvironmentFile=-$NH_PROXY_ENVF
+EOF
+  cat > "$NH_BYOK_TIMER" <<EOF
+[Unit]
+Description=nvidia-harness Cursor BYOK idle apply
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=20
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target
+EOF
   has_cmd systemctl || return 0
   systemctl --user daemon-reload >/dev/null 2>&1 || true
-  if systemctl --user is-active nvidia-cursor-proxy.service >/dev/null 2>&1; then
-    systemctl --user stop nvidia-cursor-proxy.service >/dev/null 2>&1 || true
-  fi
-  if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
-    systemctl --user restart "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1 || true
-  fi
-  local _
-  for _ in 1 2 3 4 5 6 7 8; do
-    cursor_proxy_up && { ok "proxy recarregado ($CURSOR_PROXY_URL)"; return 0; }
-    sleep 0.3
-  done
-  return 0
+  systemctl --user enable --now "$NH_BYOK_TIMER_NAME" >/dev/null 2>&1 || true
+  ok "timer BYOK: aplica o proxy quando o Cursor não está aberto"
 }
 
 nh_ensure_cursor_proxy() {
@@ -237,5 +449,5 @@ nh_ensure_cursor_proxy() {
   nh_try_start_free_router || true
   nh_install_cursor_proxy_files
   nh_start_cursor_proxy
-  nh_reload_cursor_proxy
+  nh_enable_cursor_public_url || true
 }
