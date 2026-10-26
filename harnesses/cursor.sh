@@ -132,6 +132,16 @@ print('  baseUrl  :', d.get('cursor.openai.baseUrl') or '(não definido)')
 PY
   fi
   printf '  proxy    : %s (%s)\n' "$CURSOR_PROXY_URL" "$(cursor_proxy_up && echo ativo || echo ausente)"
+  if has_cmd systemctl; then
+    printf '  unit     : %s (%s)\n' "$NH_PROXY_UNIT_NAME" \
+      "$(systemctl --user is-active "$NH_PROXY_UNIT_NAME" 2>/dev/null || echo inativo)"
+    printf '  enabled  : %s\n' \
+      "$(systemctl --user is-enabled "$NH_PROXY_UNIT_NAME" 2>/dev/null || echo disabled)"
+  fi
+  if has_cmd loginctl; then
+    printf '  linger   : %s\n' \
+      "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || echo desconhecido)"
+  fi
   printf '  free-rtr : %s (%s)\n' "$NH_FREE_ROUTER_URL" "$(nh_free_router_up && echo ativo || echo ausente)"
   printf '  state db : %s (%s)\n' "$STATE_DB" "$([ -f "$STATE_DB" ] && echo presente || echo ausente)"
   if [ -f "$STATE_DB" ]; then

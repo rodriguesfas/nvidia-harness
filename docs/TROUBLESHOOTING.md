@@ -51,7 +51,17 @@ O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o
 - `cursor.openai.baseUrl` e `openAIBaseUrl` no `state.vscdb` = `http://127.0.0.1:12436/v1`.
 - Chave OpenAI = `nvapi-…` (o proxy encaminha à NIM; nos ids `coder`/`fast`/… troca pela chave do LiteLLM).
 - `systemctl --user status nvidia-harness-cursor-proxy` (ou `./install.sh cursor --diagnose`).
+- `curl -sS http://127.0.0.1:12436/health` tem de devolver `{"ok":true,…}` sem esperar o catálogo NVIDIA.
 - No picker: `nvidia/…` = NIM, `opencode/…` = pool OpenCode, sem prefixo = nativo do Cursor. OpenCode só aparece depois de fechar a IDE e `./install.sh cursor --yes` com o LiteLLM `:4000` no ar.
+
+## Cursor: proxy some após reboot / desligar
+
+O shim tem de ser a unidade **nova** `nvidia-harness-cursor-proxy.service`, não a legado `nvidia-cursor-proxy.service` (binário em `local-ai/`).
+
+- `systemctl --user is-enabled nvidia-harness-cursor-proxy` → `enabled`
+- `loginctl show-user "$USER" -p Linger` → `Linger=yes` (sem linger o systemd --user só sobe no login)
+- `./install.sh cursor --yes` activa linger, desliga a unidade legado e faz `Restart=always`
+- Diagnose: linha `unit` / `enabled` / `linger` em `./install.sh cursor --diagnose`
 
 ## Cursor: configuração some / modelos NVIDIA não respondem
 

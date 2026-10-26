@@ -27,7 +27,12 @@ nh_http_up() {
 }
 
 cursor_proxy_up() {
-  nh_http_up "${CURSOR_PROXY_URL%/}/models"
+  local base="http://${NH_CURSOR_PROXY_HOST}:${NH_CURSOR_PROXY_PORT}"
+  # /health é instantâneo. /v1/models espera o catálogo NVIDIA e falha o
+  # diagnose com timeout de 2s mesmo com o shim no ar.
+  nh_http_up "${base}/health" \
+    || nh_http_up "${base}/v1/health" \
+    || nh_http_up "${CURSOR_PROXY_URL%/}/models"
 }
 
 nh_free_router_up() {
@@ -144,12 +149,13 @@ nh_install_cursor_proxy_files() {
 [Unit]
 Description=nvidia-harness Cursor proxy (NVIDIA NIM + OpenCode free-router)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 $NH_PROXY_BIN
 EnvironmentFile=-$NH_PROXY_ENVF
-Restart=on-failure
+Restart=always
 RestartSec=2
 
 [Install]
@@ -158,24 +164,38 @@ EOF
   ok "proxy instalado em $NH_PROXY_BIN"
 }
 
-nh_start_cursor_proxy() {
-  if cursor_proxy_up; then
-    ok "proxy já escuta $CURSOR_PROXY_URL"
+# systemd --user só sobrevive a reboot/desligar com linger. Sem isso o
+# proxy só volta depois do login gráfico.
+nh_enable_user_linger() {
+  has_cmd loginctl || return 0
+  local linger
+  linger="$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)"
+  if [ "$linger" = "yes" ]; then
+    ok "linger já ativo — proxy sobe no boot"
     return 0
   fi
-  if has_cmd systemctl && [ -d "$HOME/.config/systemd/user" ]; then
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
-    if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
-      :
-    else
-      aviso "systemd --user não subiu o proxy; tentando processo em background"
-      nh_start_cursor_proxy_bg || return 1
-    fi
-  else
-    nh_start_cursor_proxy_bg || return 1
+  if loginctl enable-linger "$USER" >/dev/null 2>&1; then
+    ok "linger ativo para $USER (systemd --user no boot)"
+    return 0
   fi
+  aviso "não deu para activar linger (loginctl enable-linger $USER). Sem isso o proxy só sobe após o login."
+}
+
+# Unidade antiga (local-ai) ocupava :12436 e o harness achava que já estava ok.
+nh_retire_legacy_cursor_proxy() {
+  has_cmd systemctl || return 0
+  local legacy="nvidia-cursor-proxy.service"
+  if systemctl --user is-active "$legacy" >/dev/null 2>&1 \
+    || systemctl --user is-enabled "$legacy" >/dev/null 2>&1; then
+    log "desligando unidade legado $legacy (porta ${NH_CURSOR_PROXY_PORT})"
+    systemctl --user disable --now "$legacy" >/dev/null 2>&1 || true
+    systemctl --user stop "$legacy" >/dev/null 2>&1 || true
+  fi
+}
+
+nh_wait_cursor_proxy() {
   local _
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if cursor_proxy_up; then
       ok "proxy ativo em $CURSOR_PROXY_URL"
       return 0
@@ -184,6 +204,23 @@ nh_start_cursor_proxy() {
   done
   aviso "proxy ainda não responde em $CURSOR_PROXY_URL"
   return 1
+}
+
+nh_start_cursor_proxy() {
+  nh_enable_user_linger
+  nh_retire_legacy_cursor_proxy
+  if has_cmd systemctl && [ -d "$HOME/.config/systemd/user" ]; then
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
+      systemctl --user restart "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1 || true
+    else
+      aviso "systemd --user não subiu o proxy; tentando processo em background"
+      nh_start_cursor_proxy_bg || return 1
+    fi
+  else
+    nh_start_cursor_proxy_bg || return 1
+  fi
+  nh_wait_cursor_proxy
 }
 
 nh_start_cursor_proxy_bg() {
@@ -204,38 +241,9 @@ nh_start_cursor_proxy_bg() {
   echo $! > "$pidf"
 }
 
-nh_cursor_ide_running() {
-  pgrep -f "/usr/share/cursor/cursor" >/dev/null 2>&1 \
-    || pgrep -x cursor >/dev/null 2>&1
-}
-
-# Troca o processo antigo pelo shim novo (prefixo opencode/…). Não faz isso
-# com a IDE aberta — ela está usando a porta.
-nh_reload_cursor_proxy() {
-  if nh_cursor_ide_running; then
-    aviso "Cursor aberto: proxy em execução fica como está; feche a IDE e rode de novo para carregar opencode/…"
-    return 0
-  fi
-  has_cmd systemctl || return 0
-  systemctl --user daemon-reload >/dev/null 2>&1 || true
-  if systemctl --user is-active nvidia-cursor-proxy.service >/dev/null 2>&1; then
-    systemctl --user stop nvidia-cursor-proxy.service >/dev/null 2>&1 || true
-  fi
-  if systemctl --user enable --now "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1; then
-    systemctl --user restart "$NH_PROXY_UNIT_NAME" >/dev/null 2>&1 || true
-  fi
-  local _
-  for _ in 1 2 3 4 5 6 7 8; do
-    cursor_proxy_up && { ok "proxy recarregado ($CURSOR_PROXY_URL)"; return 0; }
-    sleep 0.3
-  done
-  return 0
-}
-
 nh_ensure_cursor_proxy() {
   nh_detect_free_router_env
   nh_try_start_free_router || true
   nh_install_cursor_proxy_files
   nh_start_cursor_proxy
-  nh_reload_cursor_proxy
 }
