@@ -118,9 +118,44 @@ nh_try_start_free_router() {
   return 1
 }
 
+nh_normalize_colab_url() {
+  # Aceita host ngrok/cloudflare com ou sem /v1; o proxy junta /v1/… sozinho.
+  local u="${1:-}"
+  u="${u%/}"
+  u="${u%/v1}"
+  printf '%s' "$u"
+}
+
+nh_load_colab_env() {
+  local u m
+  if [ -z "${NH_COLAB_URL:-}" ] && [ -f "$NH_PROXY_ENVF" ]; then
+    u="$(nh_read_env_key "$NH_PROXY_ENVF" NH_COLAB_URL || true)"
+    [ -n "$u" ] && NH_COLAB_URL="$u" && export NH_COLAB_URL
+  fi
+  if [ -z "${NH_COLAB_MODEL:-}" ] && [ -f "$NH_PROXY_ENVF" ]; then
+    m="$(nh_read_env_key "$NH_PROXY_ENVF" NH_COLAB_MODEL || true)"
+    [ -n "$m" ] && NH_COLAB_MODEL="$m" && export NH_COLAB_MODEL
+  fi
+  NH_COLAB_MODEL="${NH_COLAB_MODEL:-Qwen/Qwen2.5-Coder-3B-Instruct}"
+  export NH_COLAB_MODEL
+  if [ -n "${NH_COLAB_URL:-}" ]; then
+    NH_COLAB_URL="$(nh_normalize_colab_url "$NH_COLAB_URL")"
+    export NH_COLAB_URL
+  fi
+}
+
+nh_colab_up() {
+  [ -n "${NH_COLAB_URL:-}" ] || return 1
+  nh_http_up "${NH_COLAB_URL%/}/v1/models" \
+    || nh_http_up "${NH_COLAB_URL%/}/models" \
+    || nh_http_up "${NH_COLAB_URL%/}/health" \
+    || nh_http_up "${NH_COLAB_URL%/}/"
+}
+
 nh_write_proxy_env() {
   ensure_dir "$NH_CONFIG_DIR"
   umask 077
+  nh_load_colab_env
   {
     printf 'NVIDIA_NIM_API_KEY=%s\n' "${NH_API_KEY:-${NVIDIA_NIM_API_KEY:-}}"
     printf 'NVIDIA_API_KEY=%s\n' "${NH_API_KEY:-${NVIDIA_API_KEY:-}}"
@@ -135,6 +170,13 @@ nh_write_proxy_env() {
     if [ -n "${NH_FREE_ROUTER_ENV:-}" ]; then
       printf 'NH_FREE_ROUTER_ENV=%s\n' "$NH_FREE_ROUTER_ENV"
     fi
+    if [ -n "${NH_COLAB_URL:-}" ]; then
+      printf 'NH_COLAB_URL=%s\n' "$NH_COLAB_URL"
+      printf 'NH_COLAB_MODEL=%s\n' "${NH_COLAB_MODEL:-Qwen/Qwen2.5-Coder-3B-Instruct}"
+    fi
+    if [ -n "${NH_COLAB_API_KEY:-}" ]; then
+      printf 'NH_COLAB_API_KEY=%s\n' "$NH_COLAB_API_KEY"
+    fi
   } > "$NH_PROXY_ENVF"
   chmod 600 "$NH_PROXY_ENVF"
 }
@@ -148,7 +190,7 @@ nh_install_cursor_proxy_files() {
   ensure_dir "$(dirname "$NH_PROXY_UNIT")"
   cat > "$NH_PROXY_UNIT" <<EOF
 [Unit]
-Description=nvidia-harness Cursor proxy (NVIDIA NIM + OpenCode free-router)
+Description=nvidia-harness Cursor proxy (NVIDIA NIM + OpenCode free-router + Colab)
 After=network-online.target
 Wants=network-online.target
 
