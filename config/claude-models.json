@@ -103,6 +103,20 @@
       "behavesAs": "claude-sonnet-4-6"
     },
     {
+      "model_name": "opencode-cloudflare-llama31-8b",
+      "smoke_id": "cloudflare-llama31-8b",
+      "label": "OpenCode cloudflare-llama31-8b",
+      "description": "pool grátis (LiteLLM :4000) — Cloudflare Workers AI Llama 3.1 8B",
+      "behavesAs": "claude-haiku-4-5"
+    },
+    {
+      "model_name": "opencode-cloudflare-gpt-oss-20b",
+      "smoke_id": "cloudflare-gpt-oss-20b",
+      "label": "OpenCode cloudflare-gpt-oss-20b",
+      "description": "pool grátis (LiteLLM :4000) — Cloudflare Workers AI gpt-oss-20b",
+      "behavesAs": "claude-haiku-4-5"
+    },
+    {
       "model_name": "opencode-local-qwen7b",
       "smoke_id": "local-qwen7b",
       "label": "OpenCode local-qwen7b",

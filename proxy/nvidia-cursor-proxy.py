@@ -40,6 +40,8 @@ FREE_ROUTER_MODELS = frozenset(
         "groq-gpt-oss-120b",
         "groq-gpt-oss-20b",
         "groq-qwen3.8-27b",
+        "cloudflare-llama31-8b",
+        "cloudflare-gpt-oss-20b",
         "local-qwen7b",
         "local-qwen3b",
     }

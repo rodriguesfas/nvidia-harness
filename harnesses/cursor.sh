@@ -40,6 +40,8 @@ CURSOR_FREE_MODELS=(
   "opencode/openrouter-free"
   "opencode/groq-gpt-oss-20b"
   "opencode/groq-qwen3.8-27b"
+  "opencode/cloudflare-llama31-8b"
+  "opencode/cloudflare-gpt-oss-20b"
   "opencode/local-qwen7b"
 )
 

@@ -80,7 +80,7 @@ NVIDIA_NIM_API_KEY=nvapi-… ./install.sh cursor --yes
 
 **Feche o Cursor, rode o comando, abra de novo.** Nada para colar na UI: o script (1) instala o shim em `~/.config/nvidia-harness/bin/nvidia-cursor-proxy.py` e sobe `nvidia-harness-cursor-proxy.service` (`http://127.0.0.1:12436/v1`) com `Restart=always` + linger (sobe no boot, mesmo após desligar), (2) expõe o shim em HTTPS público (Funnel Tailscale, ou ngrok se o Funnel exigir root), (3) prova `chat/completions` e (4) grava Base URL pública, `useOpenAIKey`, chave no SecretStorage e só os ids que responderam. Unidade legado `nvidia-cursor-proxy.service` é desligada.
 
-O proxy é obrigatório — o Agent do Cursor manda `content` em lista; a NIM rejeita isso com 400. A Base URL na IDE tem de ser HTTPS público (`https://<nó>.ts.net/v1` ou o host ngrok), não `http://127.0.0.1:12436/v1` — senão o cloud devolve 403 *Access to private networks is forbidden*. No picker o prefixo diz a origem: `nvidia/…` = NIM, `opencode/…` = pool grátis do OpenCode (só se o LiteLLM `:4000` estiver no ar), sem prefixo = nativo do Cursor.
+O proxy é obrigatório — o Agent do Cursor manda `content` em lista; a NIM rejeita isso com 400. A Base URL na IDE tem de ser HTTPS público (`https://<nó>.ts.net/v1` ou o host ngrok), não `http://127.0.0.1:12436/v1` — senão o cloud devolve 403 *Access to private networks is forbidden*. No picker o prefixo diz a origem: `nvidia/…` = NIM, `opencode/…` = pool grátis do OpenCode (Gemini/Groq/OpenRouter/Mistral/Cloudflare Workers AI — só se o LiteLLM `:4000` estiver no ar), sem prefixo = nativo do Cursor.
 
 Sem `git clone` (tarball em `/tmp`, apaga ao sair):
 
