@@ -55,6 +55,8 @@ FREE_ROUTER_MODELS = frozenset(
 # Atalhos no picker Cursor → reescritos para NH_COLAB_MODEL no upstream Colab.
 COLAB_ALIASES = frozenset({"coder", "qwen-coder", "colab-coder"})
 GPT_OSS_20B_MAX_TOKENS = 4096
+PROXY_ENV_PATH = Path.home() / ".config/nvidia-harness/proxy.env"
+BYOK_JSON_PATH = Path.home() / ".config/nvidia-harness/cursor-byok.json"
 HOP_BY_HOP = {
     "host",
     "content-length",
@@ -121,6 +123,104 @@ def colab_upstream_model() -> str:
     return (
         os.environ.get("NH_COLAB_MODEL") or COLAB_MODEL or "Qwen/Qwen2.5-Coder-3B-Instruct"
     ).strip()
+
+
+def colab_picker_id(hf_model: str | None = None) -> str:
+    """Qwen/Qwen2.5-Coder-3B-Instruct → google-colab-qwen2.5-coder-3b."""
+    raw = (hf_model or colab_upstream_model()).strip()
+    name = raw.split("/")[-1] if raw else "coder"
+    # Mantém pontos (2.5); só troca o resto de não-alfanumérico por '-'.
+    slug = "".join(ch.lower() if (ch.isalnum() or ch == ".") else "-" for ch in name)
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-.") or "coder"
+    for suf in ("-instruct", "-chat", "-it"):
+        if slug.endswith(suf):
+            slug = slug[: -len(suf)]
+            break
+    return f"google-colab-{slug}"
+
+
+def load_register_token() -> str:
+    return (os.environ.get("NH_COLAB_REGISTER_TOKEN") or "").strip() or _key_from_files(
+        "NH_COLAB_REGISTER_TOKEN"
+    )
+
+
+def _upsert_env_file(path: Path, updates: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    if path.is_file():
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            out.append(line)
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key in updates:
+            out.append(f"{key}={updates[key]}")
+            seen.add(key)
+        else:
+            out.append(line)
+    for key, val in updates.items():
+        if key not in seen:
+            out.append(f"{key}={val}")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
+def persist_colab_registration(url: str, model: str) -> str:
+    """Atualiza env em memória + proxy.env + cursor-byok.json. Devolve picker id."""
+    global COLAB, COLAB_MODEL
+    url = url.rstrip("/").removesuffix("/v1")
+    model = (model or colab_upstream_model()).strip()
+    os.environ["NH_COLAB_URL"] = url
+    os.environ["NH_COLAB_MODEL"] = model
+    COLAB = url
+    COLAB_MODEL = model
+    _upsert_env_file(
+        PROXY_ENV_PATH,
+        {"NH_COLAB_URL": url, "NH_COLAB_MODEL": model},
+    )
+    picker = colab_picker_id(model)
+    models: list[str] = []
+    if BYOK_JSON_PATH.is_file():
+        try:
+            blob = json.loads(BYOK_JSON_PATH.read_text(encoding="utf-8"))
+            if isinstance(blob, dict):
+                raw = blob.get("userAddedModels") or []
+                if isinstance(raw, str):
+                    raw = raw.split()
+                models = [str(m) for m in raw if m]
+        except (OSError, json.JSONDecodeError):
+            models = []
+    for alias in (picker, "colab/coder", f"google-colab/{model}"):
+        if alias not in models:
+            models.append(alias)
+    public = ""
+    try:
+        import subprocess
+
+        tun = Path.home() / ".config/nvidia-harness/bin/cursor-tunnel-url.py"
+        if tun.is_file():
+            public = subprocess.check_output(
+                ["python3", str(tun)], text=True, stderr=subprocess.DEVNULL, timeout=5
+            ).strip()
+    except Exception:
+        public = ""
+    payload = {
+        "openAIBaseUrl": public or "http://127.0.0.1:12436/v1",
+        "useOpenAIKey": True,
+        "userAddedModels": models,
+    }
+    BYOK_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    BYOK_JSON_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    BYOK_JSON_PATH.chmod(0o600)
+    return picker
 
 
 def flatten_content(content):
@@ -284,10 +384,13 @@ def canonical_free_router_model(model: str) -> str | None:
 
 
 def canonical_colab_model(model: str) -> str | None:
-    """Picker colab/coder → id HF no vLLM (NH_COLAB_MODEL); colab/<hf-id> passa."""
+    """Picker google-colab-* / colab/coder → id HF no vLLM (NH_COLAB_MODEL)."""
     if not colab_base():
         return None
     name = (model or "").strip()
+    picker = colab_picker_id()
+    if name == picker or name in {f"google-colab-{a}" for a in COLAB_ALIASES}:
+        return colab_upstream_model()
     for prefix in ("colab/", "google-colab/", "gc/"):
         if name.startswith(prefix):
             name = name[len(prefix) :]
@@ -332,6 +435,11 @@ def merge_model_lists(
                 {"id": public, "object": "model", "owned_by": "opencode"},
             )
     if colab_up:
+        picker = colab_picker_id()
+        by_id.setdefault(
+            picker,
+            {"id": picker, "object": "model", "owned_by": "google-colab"},
+        )
         by_id.setdefault(
             "colab/coder",
             {"id": "colab/coder", "object": "model", "owned_by": "colab"},
@@ -390,7 +498,13 @@ def _selftest() -> None:
     )
     os.environ["NH_COLAB_URL"] = "http://127.0.0.1:9"
     os.environ["NH_COLAB_MODEL"] = "Qwen/Qwen2.5-Coder-3B-Instruct"
+    assert colab_picker_id("Qwen/Qwen2.5-Coder-3B-Instruct") == (
+        "google-colab-qwen2.5-coder-3b"
+    )
     assert canonical_colab_model("colab/coder") == "Qwen/Qwen2.5-Coder-3B-Instruct"
+    assert canonical_colab_model("google-colab-qwen2.5-coder-3b") == (
+        "Qwen/Qwen2.5-Coder-3B-Instruct"
+    )
     assert (
         canonical_colab_model("colab/Qwen/Qwen2.5-Coder-7B-Instruct")
         == "Qwen/Qwen2.5-Coder-7B-Instruct"
@@ -398,6 +512,7 @@ def _selftest() -> None:
     assert canonical_colab_model("opencode/fast") is None
     os.environ.pop("NH_COLAB_URL", None)
     assert canonical_colab_model("colab/coder") is None
+    os.environ["NH_COLAB_URL"] = "http://127.0.0.1:9"
     merged = merge_model_lists(
         {"data": [{"id": "nvidia/nemotron-3-ultra-550b-a55b"}]},
         {"data": [{"id": "coder"}]},
@@ -407,7 +522,9 @@ def _selftest() -> None:
     ids = {m["id"] for m in merged["data"]}
     assert "opencode/coder" in ids and "opencode/fast" in ids
     assert "colab/coder" in ids
+    assert "google-colab-qwen2.5-coder-3b" in ids
     assert "nvidia/nemotron-3-ultra-550b-a55b" in ids
+    os.environ.pop("NH_COLAB_URL", None)
     print("selftest ok")
 
 
@@ -570,6 +687,79 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         raw = self.rfile.read(length) if length else b"{}"
         path = self.path.split("?", 1)[0]
+        clean = path.rstrip("/")
+        if clean.endswith("/colab/register") or clean.endswith("/v1/colab/register"):
+            want = load_register_token()
+            if not want:
+                self._json_response(
+                    503,
+                    {
+                        "error": {
+                            "message": "NH_COLAB_REGISTER_TOKEN ausente no proxy.env",
+                            "type": "proxy_error",
+                            "code": "colab_register_unconfigured",
+                        }
+                    },
+                )
+                return
+            auth = (self.headers.get("Authorization") or "").strip()
+            got = auth.split(None, 1)[-1].strip() if auth.lower().startswith("bearer ") else ""
+            if got != want:
+                self._reject_unauthorized()
+                return
+            try:
+                payload = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._json_response(
+                    400,
+                    {"error": {"message": "JSON inválido", "type": "invalid_request_error"}},
+                )
+                return
+            url = str((payload or {}).get("url") or "").strip()
+            model = str(
+                (payload or {}).get("model") or colab_upstream_model()
+            ).strip()
+            if not url.startswith("https://"):
+                self._json_response(
+                    400,
+                    {
+                        "error": {
+                            "message": "url tem de ser https://… (trycloudflare/ngrok)",
+                            "type": "invalid_request_error",
+                        }
+                    },
+                )
+                return
+            host = url.split("://", 1)[-1].split("/", 1)[0].lower()
+            allowed = (
+                host.endswith(".trycloudflare.com")
+                or host.endswith(".ngrok-free.app")
+                or host.endswith(".ngrok.io")
+                or host.endswith(".ngrok.app")
+            )
+            if not allowed:
+                self._json_response(
+                    400,
+                    {
+                        "error": {
+                            "message": f"host não permitido: {host}",
+                            "type": "invalid_request_error",
+                        }
+                    },
+                )
+                return
+            picker = persist_colab_registration(url, model)
+            self._json_response(
+                200,
+                {
+                    "ok": True,
+                    "colab": colab_base(),
+                    "colab_model": colab_upstream_model(),
+                    "picker": picker,
+                    "hint": "Fecha o Cursor uns segundos (timer BYOK) ou: ./install.sh cursor --yes",
+                },
+            )
+            return
         if path.endswith("/chat/completions") or path.endswith("/responses"):
             if not self._bearer_ok():
                 self._reject_unauthorized()

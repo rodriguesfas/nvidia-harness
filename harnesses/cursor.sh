@@ -45,7 +45,9 @@ CURSOR_FREE_MODELS=(
   "opencode/local-qwen7b"
 )
 # Só entra com NH_COLAB_URL (vLLM no Colab) a responder no proxy.
+# O id canónico no picker é google-colab-<slug-do-HF>; colab/coder fica como alias.
 CURSOR_COLAB_MODELS=(
+  "google-colab-qwen2.5-coder-3b"
   "colab/coder"
 )
 
@@ -241,7 +243,7 @@ if cursor_proxy_up; then
   fi
   if [ -n "${NH_COLAB_URL:-}" ] && nh_colab_up; then
     COLAB_ON=1
-    ok "Colab upstream ativo: $NH_COLAB_URL → colab/coder ($NH_COLAB_MODEL)"
+    ok "Colab upstream ativo: $NH_COLAB_URL → google-colab-* ($NH_COLAB_MODEL)"
   elif [ -n "${NH_COLAB_URL:-}" ]; then
     aviso "NH_COLAB_URL definido mas sem resposta: $NH_COLAB_URL (notebook/túnel no ar?)"
   fi
@@ -444,8 +446,9 @@ Pronto (Cursor). No picker, o prefixo diz a origem:
 
   nvidia/…     NIM (conta NVIDIA)
   opencode/…   pool grátis do OpenCode (LiteLLM :4000)
-  colab/…      vLLM no Google Colab (NH_COLAB_URL / --colab-url)
-  sem prefixo  nativos do Cursor (claude-*, gpt-5*, composer-*)
+  google-colab-*  vLLM no Google Colab (auto-registo do notebook ou --colab-url)
+  colab/…         alias legado do mesmo upstream
+  sem prefixo     nativos do Cursor (claude-*, gpt-5*, composer-*)
 
 EOF
 echo "NVIDIA NIM:"
@@ -453,7 +456,7 @@ printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  nvidia/' || echo "  (nenhum)"
 echo "OpenCode:"
 printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  opencode/' || echo "  (nenhum — LiteLLM :4000 ausente ou Cursor estava aberto)"
 echo "Colab:"
-printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  colab/' || echo "  (nenhum — corre notebooks/colab_cursor_coder.ipynb e --colab-url)"
+printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep -E '^  (colab/|google-colab)' || echo "  (nenhum — bin/prepare-colab-notebook.py + Run All no Colab)"
 if [ "$FREE_ON" != 1 ]; then
   echo
   echo "Pool OpenCode não entrou: LiteLLM em $NH_FREE_ROUTER_URL ausente."
@@ -461,7 +464,7 @@ if [ "$FREE_ON" != 1 ]; then
 fi
 if [ -z "${NH_COLAB_URL:-}" ]; then
   echo
-  echo "Colab: notebooks/colab_cursor_coder.ipynb → ./install.sh cursor --colab-url 'https://…' --yes"
+  echo "Colab: python3 bin/prepare-colab-notebook.py && abre o .ready.ipynb (kernel Colab) → Run All"
 fi
 ok "cursor: proxy + NVIDIA NIM aplicados"
 echo "  diagnose: ./install.sh cursor --diagnose"

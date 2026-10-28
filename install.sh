@@ -191,8 +191,10 @@ self_test() {
     || erro "self-test: rota Colab ausente no proxy Cursor"
   grep -q 'NH_COLAB_URL' "$NH_ROOT/lib/cursor-proxy.sh" \
     || erro "self-test: NH_COLAB_URL ausente em cursor-proxy.sh"
-  grep -q 'colab/coder' "$NH_ROOT/harnesses/cursor.sh" \
-    || erro "self-test: colab/coder ausente em cursor.sh"
+  grep -q 'google-colab-qwen2.5-coder-3b' "$NH_ROOT/harnesses/cursor.sh" \
+    || erro "self-test: google-colab-qwen2.5-coder-3b ausente em cursor.sh"
+  grep -q 'colab/register' "$NH_ROOT/proxy/nvidia-cursor-proxy.py" \
+    || erro "self-test: /v1/colab/register ausente no proxy"
   test -f "$NH_ROOT/notebooks/colab_cursor_coder.ipynb" \
     || erro "self-test: notebooks/colab_cursor_coder.ipynb ausente"
   grep -q 'Access to private networks is forbidden' "$NH_ROOT/docs/TROUBLESHOOTING.md" \
