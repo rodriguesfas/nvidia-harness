@@ -53,7 +53,7 @@ O Agent do Cursor manda `content` como lista; a NIM rejeita. O harness instala o
 - `systemctl --user status nvidia-harness-cursor-proxy` (ou `./install.sh cursor --diagnose`).
 - `curl -sS http://127.0.0.1:12436/health` tem de devolver `{"ok":true,…}` sem esperar o catálogo NVIDIA.
 - Regressão offline: `./install.sh --self-test` (sobe o shim + upstreams mock; não usa a chave NVIDIA).
-- No picker: `nvidia/…` = NIM, `opencode/…` = pool OpenCode, `colab/…` = vLLM no Colab, sem prefixo = nativo do Cursor. OpenCode só aparece depois de fechar a IDE e `./install.sh cursor --yes` com o LiteLLM `:4000` no ar. Colab: corre `notebooks/colab_cursor_coder.ipynb`, depois `./install.sh cursor --colab-url 'https://…' --yes` (grava `NH_COLAB_URL` em `proxy.env` e reinicia o shim). Diagnose: linha `colab` em `./install.sh cursor --diagnose`; `curl -sS http://127.0.0.1:12436/health` deve listar `"colab":"https://…"`.
+- No picker: `nvidia/…` = NIM, `opencode/…` = pool OpenCode, `google-colab-…` = vLLM no Colab, sem prefixo = nativo do Cursor. OpenCode só aparece depois de fechar a IDE e `./install.sh cursor --yes` com o LiteLLM `:4000` no ar. Colab: `python3 bin/prepare-colab-notebook.py` → abre o `.ready.ipynb` (kernel Colab GPU) → Run All (regista no Funnel via `POST /v1/colab/register`). Depois fecha o Cursor uns segundos ou `./install.sh cursor --yes`. Diagnose: `curl -sS http://127.0.0.1:12436/health` com `"colab":"https://…"`.
 
 ## Cursor: HTTP 403 `Access to private networks is forbidden`
 
