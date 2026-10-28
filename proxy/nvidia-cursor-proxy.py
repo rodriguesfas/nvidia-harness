@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Shim Cursor Agent → NVIDIA NIM + pool grátis do OpenCode (LiteLLM).
+"""Shim Cursor Agent → NVIDIA NIM + pool grátis do OpenCode (LiteLLM) + Colab.
 
 Cursor envia content em lista de partes ({type,text}) e, em modelos openai/*,
 às vezes o formato Responses API. A NIM (Harmony/vLLM) exige content string
 e /v1/chat/completions. Sem este shim o Agent devolve 400 Pydantic.
 
 Ids curtos do free-router (coder, fast, …) vão para NH_FREE_ROUTER_URL
-(default http://127.0.0.1:4000); o resto continua na NVIDIA.
+(default http://127.0.0.1:4000). Prefixo colab/… (ou ids em COLAB_MODELS)
+vai para NH_COLAB_URL (vLLM/llama.cpp no Google Colab via túnel HTTPS).
+O resto continua na NVIDIA.
 """
 from __future__ import annotations
 
@@ -21,6 +23,10 @@ from pathlib import Path
 
 UPSTREAM = os.environ.get("NVIDIA_ORIGIN", "https://integrate.api.nvidia.com").rstrip("/")
 FREE_ROUTER = os.environ.get("NH_FREE_ROUTER_URL", "http://127.0.0.1:4000").rstrip("/")
+COLAB = (os.environ.get("NH_COLAB_URL") or "").rstrip("/")
+COLAB_MODEL = (
+    os.environ.get("NH_COLAB_MODEL") or "Qwen/Qwen2.5-Coder-3B-Instruct"
+).strip()
 LISTEN = (
     os.environ.get("NH_CURSOR_PROXY_HOST", "127.0.0.1"),
     int(os.environ.get("NH_CURSOR_PROXY_PORT", "12436")),
@@ -46,6 +52,8 @@ FREE_ROUTER_MODELS = frozenset(
         "local-qwen3b",
     }
 )
+# Atalhos no picker Cursor → reescritos para NH_COLAB_MODEL no upstream Colab.
+COLAB_ALIASES = frozenset({"coder", "qwen-coder", "colab-coder"})
 GPT_OSS_20B_MAX_TOKENS = 4096
 HOP_BY_HOP = {
     "host",
@@ -97,6 +105,22 @@ def load_litellm_key() -> str:
     return (os.environ.get("LITELLM_MASTER_KEY") or "").strip() or _key_from_files(
         "LITELLM_MASTER_KEY"
     )
+
+
+def load_colab_key() -> str:
+    return (os.environ.get("NH_COLAB_API_KEY") or "").strip() or _key_from_files(
+        "NH_COLAB_API_KEY"
+    )
+
+
+def colab_base() -> str:
+    return (os.environ.get("NH_COLAB_URL") or COLAB or "").rstrip("/")
+
+
+def colab_upstream_model() -> str:
+    return (
+        os.environ.get("NH_COLAB_MODEL") or COLAB_MODEL or "Qwen/Qwen2.5-Coder-3B-Instruct"
+    ).strip()
 
 
 def flatten_content(content):
@@ -259,6 +283,23 @@ def canonical_free_router_model(model: str) -> str | None:
     return None
 
 
+def canonical_colab_model(model: str) -> str | None:
+    """Picker colab/coder → id HF no vLLM (NH_COLAB_MODEL); colab/<hf-id> passa."""
+    if not colab_base():
+        return None
+    name = (model or "").strip()
+    for prefix in ("colab/", "google-colab/", "gc/"):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
+    else:
+        if name not in COLAB_ALIASES and name != "colab-coder":
+            return None
+    if not name or name in COLAB_ALIASES:
+        return colab_upstream_model()
+    return name
+
+
 def canonical_nim_model(model: str) -> str:
     """Picker usa nvidia/…; a NIM ainda espera o id do catálogo."""
     name = (model or "").strip()
@@ -269,7 +310,13 @@ def canonical_nim_model(model: str) -> str:
     return name
 
 
-def merge_model_lists(nvidia: dict | None, free: dict | None, router_up: bool) -> dict:
+def merge_model_lists(
+    nvidia: dict | None,
+    free: dict | None,
+    router_up: bool,
+    *,
+    colab_up: bool = False,
+) -> dict:
     by_id: dict[str, dict] = {}
     for blob in (nvidia, free):
         if not isinstance(blob, dict):
@@ -284,6 +331,11 @@ def merge_model_lists(nvidia: dict | None, free: dict | None, router_up: bool) -
                 public,
                 {"id": public, "object": "model", "owned_by": "opencode"},
             )
+    if colab_up:
+        by_id.setdefault(
+            "colab/coder",
+            {"id": "colab/coder", "object": "model", "owned_by": "colab"},
+        )
     return {"object": "list", "data": list(by_id.values())}
 
 
@@ -336,13 +388,25 @@ def _selftest() -> None:
     assert canonical_nim_model("nvidia/nemotron-3.5-super-vl-120b-a12b") == (
         "nvidia/nemotron-3.5-super-vl-120b-a12b"
     )
+    os.environ["NH_COLAB_URL"] = "http://127.0.0.1:9"
+    os.environ["NH_COLAB_MODEL"] = "Qwen/Qwen2.5-Coder-3B-Instruct"
+    assert canonical_colab_model("colab/coder") == "Qwen/Qwen2.5-Coder-3B-Instruct"
+    assert (
+        canonical_colab_model("colab/Qwen/Qwen2.5-Coder-7B-Instruct")
+        == "Qwen/Qwen2.5-Coder-7B-Instruct"
+    )
+    assert canonical_colab_model("opencode/fast") is None
+    os.environ.pop("NH_COLAB_URL", None)
+    assert canonical_colab_model("colab/coder") is None
     merged = merge_model_lists(
         {"data": [{"id": "nvidia/nemotron-3-ultra-550b-a55b"}]},
         {"data": [{"id": "coder"}]},
         True,
+        colab_up=True,
     )
     ids = {m["id"] for m in merged["data"]}
     assert "opencode/coder" in ids and "opencode/fast" in ids
+    assert "colab/coder" in ids
     assert "nvidia/nemotron-3-ultra-550b-a55b" in ids
     print("selftest ok")
 
@@ -408,7 +472,24 @@ class Handler(BaseHTTPRequestHandler):
                 router_up = True
             except Exception:
                 router_up = False
-        self._json_response(200, merge_model_lists(nvidia, free, router_up))
+        colab_up = False
+        base = colab_base()
+        if base:
+            colab_headers = dict(headers)
+            ckey = load_colab_key()
+            if ckey:
+                colab_headers["Authorization"] = "Bearer " + ckey
+            _, colab_up = self._fetch_json(base + "/v1/models", colab_headers, timeout=4)
+            if not colab_up:
+                try:
+                    ctx = ssl.create_default_context() if base.startswith("https://") else None
+                    urllib.request.urlopen(base + "/health", timeout=2, context=ctx)
+                    colab_up = True
+                except Exception:
+                    colab_up = bool(base)
+        self._json_response(
+            200, merge_model_lists(nvidia, free, router_up, colab_up=colab_up)
+        )
 
     def _send_upstream(
         self,
@@ -475,6 +556,8 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "upstream": UPSTREAM,
                     "free_router": FREE_ROUTER,
+                    "colab": colab_base() or None,
+                    "colab_model": colab_upstream_model() if colab_base() else None,
                 },
             )
             return
@@ -508,6 +591,27 @@ class Handler(BaseHTTPRequestHandler):
                 auth = f"Bearer {key}" if key else None
                 self._send_upstream("POST", out_path, raw, base=FREE_ROUTER, auth=auth)
                 return
+            colab_name = canonical_colab_model(str(body.get("model") or ""))
+            if colab_name:
+                base = colab_base()
+                if not base:
+                    self._json_response(
+                        502,
+                        {
+                            "error": {
+                                "message": "NH_COLAB_URL não configurado no proxy",
+                                "type": "proxy_error",
+                                "code": "colab_unconfigured",
+                            }
+                        },
+                    )
+                    return
+                body["model"] = colab_name
+                raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+                ckey = load_colab_key()
+                auth = f"Bearer {ckey}" if ckey else "Bearer sk-colab"
+                self._send_upstream("POST", out_path, raw, base=base, auth=auth)
+                return
             body["model"] = canonical_nim_model(str(body.get("model") or ""))
             raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
             self._send_upstream("POST", out_path, raw)
@@ -525,6 +629,7 @@ def _http_selftest() -> None:
 
     nvidia_posts: list[dict] = []
     free_posts: list[dict] = []
+    colab_posts: list[dict] = []
     nvidia_gets: list[str] = []
 
     class _Mock(BaseHTTPRequestHandler):
@@ -570,13 +675,19 @@ def _http_selftest() -> None:
 
     nvidia = _spawn(nvidia_posts, nvidia_gets)
     free = _spawn(free_posts, [])
+    colab = _spawn(colab_posts, [])
     nvidia_url = f"http://127.0.0.1:{nvidia.server_address[1]}"
     free_url = f"http://127.0.0.1:{free.server_address[1]}"
+    colab_url = f"http://127.0.0.1:{colab.server_address[1]}"
 
     global UPSTREAM, FREE_ROUTER
     old_up, old_free = UPSTREAM, FREE_ROUTER
+    old_colab = os.environ.get("NH_COLAB_URL")
+    old_colab_model = os.environ.get("NH_COLAB_MODEL")
     old_log = Handler.log_message
     UPSTREAM, FREE_ROUTER = nvidia_url, free_url
+    os.environ["NH_COLAB_URL"] = colab_url
+    os.environ["NH_COLAB_MODEL"] = "Qwen/Qwen2.5-Coder-3B-Instruct"
     Handler.log_message = lambda *_a, **_k: None  # noqa: ARG005 — silêncio no teste
     proxy = None
     try:
@@ -592,6 +703,7 @@ def _http_selftest() -> None:
             assert resp.status == 200
             assert payload.get("ok") is True
             assert payload.get("upstream") == nvidia_url
+            assert payload.get("colab") == colab_url
         assert time.monotonic() - started < 1.0
         assert nvidia_gets == [], "GET /health não pode falar com a NVIDIA"
 
@@ -655,10 +767,41 @@ def _http_selftest() -> None:
         assert free_posts[0]["model"] == "fast"
         assert free_posts[0]["messages"][0]["content"] == "yo"
         assert len(nvidia_posts) == 1
+
+        colab_body = {
+            "model": "colab/coder",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "gpu"}]}
+            ],
+        }
+        req = urllib.request.Request(
+            base + "/v1/chat/completions",
+            data=json.dumps(colab_body).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            json.loads(resp.read().decode("utf-8"))
+        assert colab_posts, "mock Colab não recebeu POST"
+        assert colab_posts[0]["model"] == "Qwen/Qwen2.5-Coder-3B-Instruct"
+        assert colab_posts[0]["messages"][0]["content"] == "gpu"
+        assert len(nvidia_posts) == 1
+        assert len(free_posts) == 1
     finally:
         UPSTREAM, FREE_ROUTER = old_up, old_free
+        if old_colab is None:
+            os.environ.pop("NH_COLAB_URL", None)
+        else:
+            os.environ["NH_COLAB_URL"] = old_colab
+        if old_colab_model is None:
+            os.environ.pop("NH_COLAB_MODEL", None)
+        else:
+            os.environ["NH_COLAB_MODEL"] = old_colab_model
         Handler.log_message = old_log
-        for srv in (proxy, nvidia, free):
+        for srv in (proxy, nvidia, free, colab):
             if srv is None:
                 continue
             srv.shutdown()
@@ -672,9 +815,10 @@ if __name__ == "__main__":
         _http_selftest()
         sys.exit(0)
     httpd = ThreadingHTTPServer(LISTEN, Handler)
+    colab_info = colab_base() or "(off)"
     print(
         f"nvidia-cursor-proxy on http://{LISTEN[0]}:{LISTEN[1]} "
-        f"-> {UPSTREAM} | free-router {FREE_ROUTER}",
+        f"-> {UPSTREAM} | free-router {FREE_ROUTER} | colab {colab_info}",
         flush=True,
     )
     httpd.serve_forever()

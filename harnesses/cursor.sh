@@ -44,6 +44,10 @@ CURSOR_FREE_MODELS=(
   "opencode/cloudflare-gpt-oss-20b"
   "opencode/local-qwen7b"
 )
+# Só entra com NH_COLAB_URL (vLLM no Colab) a responder no proxy.
+CURSOR_COLAB_MODELS=(
+  "colab/coder"
+)
 
 cursor_settings_candidates() {
   cat <<EOF
@@ -77,23 +81,38 @@ while [ $# -gt 0 ]; do
       export NH_API_KEY_IN
       shift 2
       ;;
+    --colab-url)
+      [ -n "${2:-}" ] || erro "--colab-url exige https://… (túnel do notebook Colab)"
+      NH_COLAB_URL="$2"
+      export NH_COLAB_URL
+      shift 2
+      ;;
+    --colab-model)
+      [ -n "${2:-}" ] || erro "--colab-model exige o id HF servido no vLLM"
+      NH_COLAB_MODEL="$2"
+      export NH_COLAB_MODEL
+      shift 2
+      ;;
     --no-test) DO_TEST=0; shift ;;
     --diagnose) DO_DIAGNOSE=1; shift ;;
     --yes|-y) NH_YES=1; export NH_YES; shift ;;
     --force-open) FORCE_OPEN=1; shift ;;
     -h|--help)
       cat <<EOF
-Uso: ./harnesses/cursor.sh [--api-key nvapi-…] [--no-test] [--diagnose] [--yes] [--force-open]
+Uso: ./harnesses/cursor.sh [--api-key nvapi-…] [--colab-url URL] [--colab-model id]
+                           [--no-test] [--diagnose] [--yes] [--force-open]
 Instala o proxy local (:12436), valida modelos e grava a config no Cursor
 (baseUrl, useOpenAIKey, modelos com smoke, chave). Feche o Cursor antes
 (ou --force-open). Pool OpenCode (coder/fast/…) só entra se o LiteLLM :4000
-estiver no ar.
+estiver no ar. Colab (colab/coder) só entra com --colab-url (ou NH_COLAB_URL)
+apontando para o túnel HTTPS do notebook notebooks/colab_cursor_coder.ipynb.
 EOF
       exit 0
       ;;
     *) erro "argumento desconhecido: $1" ;;
   esac
 done
+nh_load_colab_env
 
 SETTINGS="$(cursor_find_settings)"
 STATE_DB="$(dirname "$SETTINGS")/globalStorage/state.vscdb"
@@ -146,12 +165,20 @@ PY
       "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || echo desconhecido)"
   fi
   printf '  free-rtr : %s (%s)\n' "$NH_FREE_ROUTER_URL" "$(nh_free_router_up && echo ativo || echo ausente)"
+  printf '  colab    : %s (%s)\n' \
+    "${NH_COLAB_URL:-NH_COLAB_URL ausente}" \
+    "$(nh_colab_up && echo ativo || echo ausente)"
+  if [ -n "${NH_COLAB_URL:-}" ]; then
+    printf '  colab-mdl: %s\n' "${NH_COLAB_MODEL:-Qwen/Qwen2.5-Coder-3B-Instruct}"
+  fi
   printf '  state db : %s (%s)\n' "$STATE_DB" "$([ -f "$STATE_DB" ] && echo presente || echo ausente)"
   if [ -f "$STATE_DB" ]; then
     python3 - "$STATE_DB" <<'PY'
 import json, sqlite3, sys
 
 def bucket(m):
+    if m.startswith("colab/") or m.startswith("google-colab/"):
+        return "colab"
     if m.startswith("opencode/") or m.startswith("free-router/"):
         return "opencode"
     if m.startswith("nvidia/") or m.startswith("meta/") or m.startswith("openai/"):
@@ -167,11 +194,12 @@ print(f"  useKey   : {data.get('useOpenAIKey')}")
 print(f"  stateUrl : {data.get('openAIBaseUrl')}")
 secret = con.execute("select 1 from ItemTable where key='secret://cursorAuth/openAIKey'").fetchone()
 print(f"  secret   : {'presente' if secret else 'ausente'}")
-groups = {"nvidia": [], "opencode": [], "cursor": []}
+groups = {"nvidia": [], "opencode": [], "colab": [], "cursor": []}
 for m in added:
     groups[bucket(m)].append(m)
 print("  nvidia   :", ", ".join(groups["nvidia"]) or "(nenhum)")
 print("  opencode :", ", ".join(groups["opencode"]) or "(nenhum — feche o Cursor e rode ./install.sh cursor --yes)")
+print("  colab    :", ", ".join(groups["colab"]) or "(nenhum — notebooks/colab_cursor_coder.ipynb + --colab-url)")
 print("  cursor   :", "(nativos da IDE, fora desta lista)")
 PY
   fi
@@ -194,6 +222,7 @@ nh_ensure_cursor_proxy || aviso "seguindo sem proxy local — Agent do Cursor po
 CURSOR_BASE_URL="$NVIDIA_BASE_URL"
 SMOKE_URL="$NVIDIA_BASE_URL"
 FREE_ON=0
+COLAB_ON=0
 if cursor_proxy_up; then
   SMOKE_URL="$CURSOR_PROXY_URL"
   CURSOR_BASE_URL="$CURSOR_PROXY_URL"
@@ -209,6 +238,12 @@ if cursor_proxy_up; then
     ok "proxy + pool OpenCode (:4000) — NIM e coder/fast/…"
   else
     ok "proxy Cursor ativo — só NIM neste host (LiteLLM :4000 ausente)"
+  fi
+  if [ -n "${NH_COLAB_URL:-}" ] && nh_colab_up; then
+    COLAB_ON=1
+    ok "Colab upstream ativo: $NH_COLAB_URL → colab/coder ($NH_COLAB_MODEL)"
+  elif [ -n "${NH_COLAB_URL:-}" ]; then
+    aviso "NH_COLAB_URL definido mas sem resposta: $NH_COLAB_URL (notebook/túnel no ar?)"
   fi
 else
   aviso "proxy $CURSOR_PROXY_URL ausente — Base URL NVIDIA direta (sem flatten, sem coder/fast)"
@@ -236,6 +271,15 @@ if [ "$DO_TEST" = 1 ]; then
       fi
     done
   fi
+  if [ "$COLAB_ON" = 1 ]; then
+    for m in "${CURSOR_COLAB_MODELS[@]}"; do
+      if NH_SMOKE_STRICT=0 nh_smoke_chat "$m"; then
+        ACTIVE_MODELS+=("$m")
+      else
+        aviso "desativando $m (Colab sem conteúdo útil agora)"
+      fi
+    done
+  fi
   NVIDIA_BASE_URL="$NVIDIA_BASE_URL_ORIG"
   export NVIDIA_BASE_URL
   [ "${#ACTIVE_MODELS[@]}" -gt 0 ] || erro "nenhum modelo validado respondeu nesta conta — nada a aplicar"
@@ -245,6 +289,9 @@ else
   ACTIVE_MODELS=("${CURSOR_NIM_MODELS[@]}")
   if [ "$FREE_ON" = 1 ]; then
     ACTIVE_MODELS+=("${CURSOR_FREE_MODELS[@]}")
+  fi
+  if [ "$COLAB_ON" = 1 ] || [ -n "${NH_COLAB_URL:-}" ]; then
+    ACTIVE_MODELS+=("${CURSOR_COLAB_MODELS[@]}")
   fi
 fi
 ok "modelos ativos: ${ACTIVE_MODELS[*]}"
@@ -397,6 +444,7 @@ Pronto (Cursor). No picker, o prefixo diz a origem:
 
   nvidia/…     NIM (conta NVIDIA)
   opencode/…   pool grátis do OpenCode (LiteLLM :4000)
+  colab/…      vLLM no Google Colab (NH_COLAB_URL / --colab-url)
   sem prefixo  nativos do Cursor (claude-*, gpt-5*, composer-*)
 
 EOF
@@ -404,10 +452,16 @@ echo "NVIDIA NIM:"
 printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  nvidia/' || echo "  (nenhum)"
 echo "OpenCode:"
 printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  opencode/' || echo "  (nenhum — LiteLLM :4000 ausente ou Cursor estava aberto)"
+echo "Colab:"
+printf '  %s\n' "${ACTIVE_MODELS[@]}" | grep '^  colab/' || echo "  (nenhum — corre notebooks/colab_cursor_coder.ipynb e --colab-url)"
 if [ "$FREE_ON" != 1 ]; then
   echo
   echo "Pool OpenCode não entrou: LiteLLM em $NH_FREE_ROUTER_URL ausente."
   echo "Com o free-router no ar: ./install.sh cursor --yes"
+fi
+if [ -z "${NH_COLAB_URL:-}" ]; then
+  echo
+  echo "Colab: notebooks/colab_cursor_coder.ipynb → ./install.sh cursor --colab-url 'https://…' --yes"
 fi
 ok "cursor: proxy + NVIDIA NIM aplicados"
 echo "  diagnose: ./install.sh cursor --diagnose"

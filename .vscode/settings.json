@@ -1,0 +1,9 @@
+{
+  "colab.logging.level": "info",
+  "colab.uploading": true,
+  "colab.activityBarContentView": true,
+  "colab.activityBarResourceView": true,
+  "colab.terminal": true,
+  "notebook.defaultFormatter": null,
+  "jupyter.askForKernelRestart": false
+}
